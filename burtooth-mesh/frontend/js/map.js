@@ -1,7 +1,7 @@
 function initMap(containerId) {
   var map = L.map(containerId, {
-    center: [42.98880, -84.18284],
-    zoom: 19,
+    center: [0, 0],
+    zoom: 3,
   });
 
   L.tileLayer(

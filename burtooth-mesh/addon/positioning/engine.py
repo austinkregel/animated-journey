@@ -32,8 +32,9 @@ class PositioningEngine:
     def __init__(self, ha_api=None, config: Optional[dict] = None):
         config = config or {}
         self._ha_api = ha_api
-        self._origin_lat = config.get("origin", {}).get("lat", 42.98880)
-        self._origin_lng = config.get("origin", {}).get("lng", -84.18284)
+        origin = config.get("origin") or {}
+        self._origin_lat = origin.get("lat", 0.0)
+        self._origin_lng = origin.get("lng", 0.0)
 
         self._node_positions: dict[str, tuple[float, float]] = {}
         self._load_node_positions(config)

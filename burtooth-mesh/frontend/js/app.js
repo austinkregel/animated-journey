@@ -650,6 +650,9 @@
         showToast('Overlay image uploaded');
         showOverlayControls();
         updateOverlayPreview();
+        probeOverlayImageSize(function () {
+          calcOverlayBounds();
+        });
       })
       .catch(function (err) {
         statusEl.textContent = 'Upload failed: ' + err.message;
@@ -679,13 +682,52 @@
     document.getElementById('overlay-preview').style.display = '';
   }
 
-  document.getElementById('overlay-capture-bounds').addEventListener('click', function () {
-    var bounds = map.getBounds();
-    document.getElementById('overlay-north').value = bounds.getNorth().toFixed(6);
-    document.getElementById('overlay-south').value = bounds.getSouth().toFixed(6);
-    document.getElementById('overlay-west').value = bounds.getWest().toFixed(6);
-    document.getElementById('overlay-east').value = bounds.getEast().toFixed(6);
-    showToast('Bounds captured from current map view');
+  var overlayImageSize = null;
+
+  function calcOverlayBounds() {
+    var lat = parseFloat(document.getElementById('overlay-center-lat').value);
+    var lng = parseFloat(document.getElementById('overlay-center-lng').value);
+    var zoom = parseInt(document.getElementById('overlay-zoom').value);
+    if (isNaN(lat) || isNaN(lng) || isNaN(zoom)) return;
+    if (!overlayImageSize) return;
+
+    var groundRes = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+    var widthM = overlayImageSize.w * groundRes;
+    var heightM = overlayImageSize.h * groundRes;
+
+    var latPerM = 1.0 / 111320.0;
+    var lngPerM = 1.0 / (111320.0 * Math.cos(lat * Math.PI / 180));
+
+    var halfLat = (heightM / 2) * latPerM;
+    var halfLng = (widthM / 2) * lngPerM;
+
+    document.getElementById('overlay-north').value = (lat + halfLat).toFixed(8);
+    document.getElementById('overlay-south').value = (lat - halfLat).toFixed(8);
+    document.getElementById('overlay-east').value = (lng + halfLng).toFixed(8);
+    document.getElementById('overlay-west').value = (lng - halfLng).toFixed(8);
+  }
+
+  function probeOverlayImageSize(callback) {
+    var img = new Image();
+    img.onload = function () {
+      overlayImageSize = { w: img.naturalWidth, h: img.naturalHeight };
+      if (callback) callback();
+    };
+    img.src = apiUrl('/api/overlay/image') + '?t=' + Date.now();
+  }
+
+  document.getElementById('overlay-center-lat').addEventListener('input', calcOverlayBounds);
+  document.getElementById('overlay-center-lng').addEventListener('input', calcOverlayBounds);
+  document.getElementById('overlay-zoom').addEventListener('input', calcOverlayBounds);
+
+  document.getElementById('overlay-use-map-center').addEventListener('click', function () {
+    var center = map.getCenter();
+    var zoom = map.getZoom();
+    document.getElementById('overlay-center-lat').value = center.lat.toFixed(8);
+    document.getElementById('overlay-center-lng').value = center.lng.toFixed(8);
+    document.getElementById('overlay-zoom').value = Math.round(zoom);
+    calcOverlayBounds();
+    showToast('Center captured from map');
   });
 
   function getOverlayBounds() {
@@ -700,7 +742,7 @@
   document.getElementById('overlay-apply').addEventListener('click', function () {
     var bounds = getOverlayBounds();
     if (!bounds) {
-      showToast('Set all four bounds first', 'error');
+      showToast('Enter center coordinates and zoom first', 'error');
       return;
     }
     var opacity = parseInt(document.getElementById('overlay-opacity').value) / 100;
@@ -710,6 +752,9 @@
     var settings = {
       overlay_bounds: bounds,
       overlay_opacity: parseInt(document.getElementById('overlay-opacity').value),
+      overlay_center_lat: parseFloat(document.getElementById('overlay-center-lat').value),
+      overlay_center_lng: parseFloat(document.getElementById('overlay-center-lng').value),
+      overlay_zoom: parseInt(document.getElementById('overlay-zoom').value),
     };
     fetch(apiUrl('/api/settings'), {
       method: 'POST',
@@ -743,11 +788,18 @@
   function loadOverlayFromSettings(settings) {
     if (!settings.overlay_bounds) return;
 
-    // Check if the overlay image exists by trying to load it
     var img = new Image();
     img.onload = function () {
+      overlayImageSize = { w: img.naturalWidth, h: img.naturalHeight };
       showOverlayControls();
       updateOverlayPreview();
+
+      if (settings.overlay_center_lat != null)
+        document.getElementById('overlay-center-lat').value = settings.overlay_center_lat;
+      if (settings.overlay_center_lng != null)
+        document.getElementById('overlay-center-lng').value = settings.overlay_center_lng;
+      if (settings.overlay_zoom != null)
+        document.getElementById('overlay-zoom').value = settings.overlay_zoom;
 
       var b = settings.overlay_bounds;
       document.getElementById('overlay-north').value = b.north;

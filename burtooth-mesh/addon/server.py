@@ -43,7 +43,7 @@ def _ensure_dirs():
 def _load_config() -> dict:
     if CONFIG_FILE.exists():
         return json.loads(CONFIG_FILE.read_text())
-    return {"nodes": [], "origin": {"lat": 42.98880, "lng": -84.18284}}
+    return {"nodes": [], "origin": None}
 
 
 def _save_config(data: dict):

@@ -270,26 +270,44 @@
             <img id="overlay-preview-img" style="width:100%;border-radius:6px;border:1px solid #3a3a4e;max-height:160px;object-fit:cover;">
           </div>
           <div id="overlay-bounds-section" style="display:none;margin-top:10px;">
-            <h4 style="font-size:12px;color:#b0b0c0;margin-bottom:8px;">Image Bounds</h4>
-            <p class="hint" style="margin-bottom:8px;">Set the geographic corners the image covers. Use "Capture from Map" to use the current map view.</p>
-            <button class="btn-secondary btn-sm" id="overlay-capture-bounds" style="margin-bottom:10px;">Capture from Map View</button>
+            <h4 style="font-size:12px;color:#b0b0c0;margin-bottom:8px;">Position Overlay</h4>
+            <p class="hint" style="margin-bottom:8px;">Enter the center coordinates and zoom level from the source map. Bounds are auto-calculated from the image dimensions.</p>
             <div class="settings-form">
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
                 <div class="form-group">
-                  <label>North (top)</label>
-                  <input type="number" id="overlay-north" step="0.00001" placeholder="42.990">
+                  <label>Center Latitude</label>
+                  <input type="number" id="overlay-center-lat" step="0.00000001" placeholder="Latitude">
                 </div>
                 <div class="form-group">
-                  <label>South (bottom)</label>
-                  <input type="number" id="overlay-south" step="0.00001" placeholder="42.987">
+                  <label>Center Longitude</label>
+                  <input type="number" id="overlay-center-lng" step="0.00000001" placeholder="Longitude">
                 </div>
                 <div class="form-group">
-                  <label>West (left)</label>
-                  <input type="number" id="overlay-west" step="0.00001" placeholder="-84.185">
+                  <label>Source Zoom Level</label>
+                  <input type="number" id="overlay-zoom" step="1" min="1" max="23" placeholder="19">
                 </div>
                 <div class="form-group">
-                  <label>East (right)</label>
-                  <input type="number" id="overlay-east" step="0.00001" placeholder="-84.180">
+                  <label>&nbsp;</label>
+                  <button class="btn-secondary btn-sm" id="overlay-use-map-center">Use Current Map View</button>
+                </div>
+              </div>
+              <hr class="form-divider" style="margin:8px 0;">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <div class="form-group">
+                  <label>North</label>
+                  <input type="number" id="overlay-north" step="0.00000001" readonly tabindex="-1" style="opacity:0.6;">
+                </div>
+                <div class="form-group">
+                  <label>South</label>
+                  <input type="number" id="overlay-south" step="0.00000001" readonly tabindex="-1" style="opacity:0.6;">
+                </div>
+                <div class="form-group">
+                  <label>West</label>
+                  <input type="number" id="overlay-west" step="0.00000001" readonly tabindex="-1" style="opacity:0.6;">
+                </div>
+                <div class="form-group">
+                  <label>East</label>
+                  <input type="number" id="overlay-east" step="0.00000001" readonly tabindex="-1" style="opacity:0.6;">
                 </div>
               </div>
             </div>
