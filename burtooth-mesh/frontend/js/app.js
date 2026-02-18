@@ -1,7 +1,5 @@
 (function () {
-  var basePath = '';
-  var metaIngress = document.querySelector('meta[name="ingress-path"]');
-  if (metaIngress) basePath = metaIngress.content;
+  var basePath = window.location.pathname.replace(/\/$/, '');
 
   function apiUrl(path) {
     return basePath + path;
