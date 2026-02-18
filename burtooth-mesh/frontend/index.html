@@ -258,6 +258,55 @@
             </div>
           </div>
         </div>
+        <div class="panel">
+          <h3>Map Overlay</h3>
+          <p class="hint" style="margin-bottom:10px;">Upload a high-res aerial image (county/parcel map) to overlay on the map at close zoom levels.</p>
+          <div class="overlay-upload-zone" id="overlay-upload-zone">
+            <div id="overlay-upload-label">Drop image here or click to select</div>
+            <input type="file" id="overlay-file-input" accept="image/*" style="display:none;">
+          </div>
+          <div id="overlay-upload-status" style="margin-top:6px;font-size:12px;color:#888;"></div>
+          <div id="overlay-preview" style="display:none;margin-top:10px;">
+            <img id="overlay-preview-img" style="width:100%;border-radius:6px;border:1px solid #3a3a4e;max-height:160px;object-fit:cover;">
+          </div>
+          <div id="overlay-bounds-section" style="display:none;margin-top:10px;">
+            <h4 style="font-size:12px;color:#b0b0c0;margin-bottom:8px;">Image Bounds</h4>
+            <p class="hint" style="margin-bottom:8px;">Set the geographic corners the image covers. Use "Capture from Map" to use the current map view.</p>
+            <button class="btn-secondary btn-sm" id="overlay-capture-bounds" style="margin-bottom:10px;">Capture from Map View</button>
+            <div class="settings-form">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <div class="form-group">
+                  <label>North (top)</label>
+                  <input type="number" id="overlay-north" step="0.00001" placeholder="42.990">
+                </div>
+                <div class="form-group">
+                  <label>South (bottom)</label>
+                  <input type="number" id="overlay-south" step="0.00001" placeholder="42.987">
+                </div>
+                <div class="form-group">
+                  <label>West (left)</label>
+                  <input type="number" id="overlay-west" step="0.00001" placeholder="-84.185">
+                </div>
+                <div class="form-group">
+                  <label>East (right)</label>
+                  <input type="number" id="overlay-east" step="0.00001" placeholder="-84.180">
+                </div>
+              </div>
+            </div>
+            <div class="btn-group" style="margin-top:10px;">
+              <button class="btn-primary btn-sm" id="overlay-apply">Apply Overlay</button>
+              <button class="btn-secondary btn-sm" id="overlay-fit">Fit to Overlay</button>
+              <button class="btn-danger btn-sm" id="overlay-remove">Remove</button>
+            </div>
+            <div style="margin-top:10px;">
+              <div class="form-group">
+                <label>Opacity</label>
+                <input type="range" id="overlay-opacity" min="0" max="100" value="85" step="5">
+                <span id="overlay-opacity-val" style="font-size:11px;color:#888;">85%</span>
+              </div>
+            </div>
+          </div>
+        </div>
         <button id="save-settings" class="btn-primary">Save Settings</button>
       </div>
 

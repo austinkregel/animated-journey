@@ -82,7 +82,7 @@
         loadFirmwareNodes();
         break;
       case 'settings':
-        loadSettings();
+        loadSettings(false);
         break;
     }
     if (name !== 'paths') {
@@ -561,7 +561,7 @@
   }
 
   // ---- Settings ----
-  function loadSettings() {
+  function loadSettings(loadOverlay) {
     fetch(apiUrl('/api/settings'))
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -577,6 +577,9 @@
           document.getElementById('setting-device-timeout').value = data.device_timeout;
         if (data.path_min_points != null)
           document.getElementById('setting-path-min-points').value = data.path_min_points;
+        if (loadOverlay) {
+          loadOverlayFromSettings(data);
+        }
       })
       .catch(function () {
         console.warn('Could not load settings');
@@ -606,6 +609,162 @@
         showToast('Save failed: ' + err.message, 'error');
       });
   });
+
+  // ---- Map Overlay ----
+  var overlayUploadZone = document.getElementById('overlay-upload-zone');
+  var overlayFileInput = document.getElementById('overlay-file-input');
+  var overlayHasImage = false;
+
+  overlayUploadZone.addEventListener('click', function () {
+    overlayFileInput.click();
+  });
+
+  overlayUploadZone.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    overlayUploadZone.classList.add('dragover');
+  });
+
+  overlayUploadZone.addEventListener('dragleave', function () {
+    overlayUploadZone.classList.remove('dragover');
+  });
+
+  overlayUploadZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    overlayUploadZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) uploadOverlayFile(e.dataTransfer.files[0]);
+  });
+
+  overlayFileInput.addEventListener('change', function () {
+    if (overlayFileInput.files.length) uploadOverlayFile(overlayFileInput.files[0]);
+  });
+
+  function uploadOverlayFile(file) {
+    var statusEl = document.getElementById('overlay-upload-status');
+    statusEl.textContent = 'Uploading ' + file.name + '...';
+
+    var formData = new FormData();
+    formData.append('image', file);
+
+    fetch(apiUrl('/api/overlay/upload'), { method: 'POST', body: formData })
+      .then(function (r) { return r.json(); })
+      .then(function () {
+        statusEl.textContent = '';
+        showToast('Overlay image uploaded');
+        showOverlayControls();
+        updateOverlayPreview();
+      })
+      .catch(function (err) {
+        statusEl.textContent = 'Upload failed: ' + err.message;
+        showToast('Upload failed', 'error');
+      });
+  }
+
+  function showOverlayControls() {
+    overlayHasImage = true;
+    overlayUploadZone.classList.add('has-image');
+    document.getElementById('overlay-upload-label').textContent = 'Replace image (click or drop)';
+    document.getElementById('overlay-bounds-section').style.display = '';
+    document.getElementById('overlay-preview').style.display = '';
+  }
+
+  function hideOverlayControls() {
+    overlayHasImage = false;
+    overlayUploadZone.classList.remove('has-image');
+    document.getElementById('overlay-upload-label').textContent = 'Drop image here or click to select';
+    document.getElementById('overlay-bounds-section').style.display = 'none';
+    document.getElementById('overlay-preview').style.display = 'none';
+  }
+
+  function updateOverlayPreview() {
+    var img = document.getElementById('overlay-preview-img');
+    img.src = apiUrl('/api/overlay/image') + '?t=' + Date.now();
+    document.getElementById('overlay-preview').style.display = '';
+  }
+
+  document.getElementById('overlay-capture-bounds').addEventListener('click', function () {
+    var bounds = map.getBounds();
+    document.getElementById('overlay-north').value = bounds.getNorth().toFixed(6);
+    document.getElementById('overlay-south').value = bounds.getSouth().toFixed(6);
+    document.getElementById('overlay-west').value = bounds.getWest().toFixed(6);
+    document.getElementById('overlay-east').value = bounds.getEast().toFixed(6);
+    showToast('Bounds captured from current map view');
+  });
+
+  function getOverlayBounds() {
+    var n = parseFloat(document.getElementById('overlay-north').value);
+    var s = parseFloat(document.getElementById('overlay-south').value);
+    var w = parseFloat(document.getElementById('overlay-west').value);
+    var e = parseFloat(document.getElementById('overlay-east').value);
+    if (isNaN(n) || isNaN(s) || isNaN(w) || isNaN(e)) return null;
+    return { north: n, south: s, west: w, east: e };
+  }
+
+  document.getElementById('overlay-apply').addEventListener('click', function () {
+    var bounds = getOverlayBounds();
+    if (!bounds) {
+      showToast('Set all four bounds first', 'error');
+      return;
+    }
+    var opacity = parseInt(document.getElementById('overlay-opacity').value) / 100;
+    var imageUrl = apiUrl('/api/overlay/image') + '?t=' + Date.now();
+    map.setOverlayImage(imageUrl, bounds, { opacity: opacity });
+
+    var settings = {
+      overlay_bounds: bounds,
+      overlay_opacity: parseInt(document.getElementById('overlay-opacity').value),
+    };
+    fetch(apiUrl('/api/settings'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    }).then(function () {
+      showToast('Overlay applied and saved');
+    });
+  });
+
+  document.getElementById('overlay-fit').addEventListener('click', function () {
+    map.fitOverlay();
+  });
+
+  document.getElementById('overlay-remove').addEventListener('click', function () {
+    if (!confirm('Remove the overlay image?')) return;
+    fetch(apiUrl('/api/overlay'), { method: 'DELETE' })
+      .then(function () {
+        map.removeOverlayImage();
+        hideOverlayControls();
+        showToast('Overlay removed');
+      });
+  });
+
+  document.getElementById('overlay-opacity').addEventListener('input', function () {
+    var pct = parseInt(this.value);
+    document.getElementById('overlay-opacity-val').textContent = pct + '%';
+    map.setOverlayOpacity(pct / 100);
+  });
+
+  function loadOverlayFromSettings(settings) {
+    if (!settings.overlay_bounds) return;
+
+    // Check if the overlay image exists by trying to load it
+    var img = new Image();
+    img.onload = function () {
+      showOverlayControls();
+      updateOverlayPreview();
+
+      var b = settings.overlay_bounds;
+      document.getElementById('overlay-north').value = b.north;
+      document.getElementById('overlay-south').value = b.south;
+      document.getElementById('overlay-west').value = b.west;
+      document.getElementById('overlay-east').value = b.east;
+
+      var opacity = settings.overlay_opacity != null ? settings.overlay_opacity : 85;
+      document.getElementById('overlay-opacity').value = opacity;
+      document.getElementById('overlay-opacity-val').textContent = opacity + '%';
+
+      map.setOverlayImage(apiUrl('/api/overlay/image'), b, { opacity: opacity / 100 });
+    };
+    img.src = apiUrl('/api/overlay/image') + '?t=' + Date.now();
+  }
 
   // ---- Status Polling ----
   function pollStatus() {
@@ -672,6 +831,7 @@
 
   // ---- Init ----
   loadConfig();
+  loadSettings(true);
   pollStatus();
   setInterval(pollStatus, 10000);
 })();

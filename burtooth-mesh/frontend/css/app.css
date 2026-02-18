@@ -801,6 +801,35 @@ input[type="range"]::-webkit-slider-thumb {
   background: #1e2a3e44;
 }
 
+/* ---- Overlay Upload ---- */
+
+.overlay-upload-zone {
+  border: 2px dashed #3a3a4e;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: #666;
+  font-size: 13px;
+}
+
+.overlay-upload-zone:hover {
+  border-color: #58a6ff;
+  background: #1e2a3e22;
+  color: #aaa;
+}
+
+.overlay-upload-zone.dragover {
+  border-color: #58a6ff;
+  background: #1e2a3e44;
+}
+
+.overlay-upload-zone.has-image {
+  border-color: #22c55e44;
+  border-style: solid;
+}
+
 /* ---- Calibration ---- */
 
 .calibration-status-grid {
