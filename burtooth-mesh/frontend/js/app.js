@@ -746,12 +746,14 @@
       return;
     }
     var opacity = parseInt(document.getElementById('overlay-opacity').value) / 100;
+    var rotation = parseFloat(document.getElementById('overlay-rotation').value) || 0;
     var imageUrl = apiUrl('/api/overlay/image') + '?t=' + Date.now();
-    map.setOverlayImage(imageUrl, bounds, { opacity: opacity });
+    map.setOverlayImage(imageUrl, bounds, { opacity: opacity, rotation: rotation });
 
     var settings = {
       overlay_bounds: bounds,
       overlay_opacity: parseInt(document.getElementById('overlay-opacity').value),
+      overlay_rotation: rotation,
       overlay_center_lat: parseFloat(document.getElementById('overlay-center-lat').value),
       overlay_center_lng: parseFloat(document.getElementById('overlay-center-lng').value),
       overlay_zoom: parseInt(document.getElementById('overlay-zoom').value),
@@ -781,8 +783,40 @@
 
   document.getElementById('overlay-opacity').addEventListener('input', function () {
     var pct = parseInt(this.value);
-    document.getElementById('overlay-opacity-val').textContent = pct + '%';
+    document.getElementById('overlay-opacity-val').textContent = pct;
     map.setOverlayOpacity(pct / 100);
+  });
+
+  document.getElementById('overlay-rotation').addEventListener('input', function () {
+    var deg = parseFloat(this.value);
+    document.getElementById('overlay-rotation-val').textContent = deg.toFixed(1);
+    map.setOverlayRotation(deg);
+  });
+
+  document.querySelectorAll('.overlay-nudge-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var dir = btn.dataset.dir;
+      var step = parseFloat(document.getElementById('overlay-nudge-step').value);
+      var dlat = 0, dlng = 0;
+      if (dir === 'n') dlat = step;
+      else if (dir === 's') dlat = -step;
+      else if (dir === 'e') dlng = step;
+      else if (dir === 'w') dlng = -step;
+      map.nudgeOverlay(dlat, dlng);
+
+      var b = map._overlayBounds;
+      if (b) {
+        document.getElementById('overlay-north').value = b.north.toFixed(8);
+        document.getElementById('overlay-south').value = b.south.toFixed(8);
+        document.getElementById('overlay-east').value = b.east.toFixed(8);
+        document.getElementById('overlay-west').value = b.west.toFixed(8);
+
+        var centerLat = (b.north + b.south) / 2;
+        var centerLng = (b.east + b.west) / 2;
+        document.getElementById('overlay-center-lat').value = centerLat.toFixed(8);
+        document.getElementById('overlay-center-lng').value = centerLng.toFixed(8);
+      }
+    });
   });
 
   function loadOverlayFromSettings(settings) {
@@ -809,9 +843,13 @@
 
       var opacity = settings.overlay_opacity != null ? settings.overlay_opacity : 85;
       document.getElementById('overlay-opacity').value = opacity;
-      document.getElementById('overlay-opacity-val').textContent = opacity + '%';
+      document.getElementById('overlay-opacity-val').textContent = opacity;
 
-      map.setOverlayImage(apiUrl('/api/overlay/image'), b, { opacity: opacity / 100 });
+      var rotation = settings.overlay_rotation || 0;
+      document.getElementById('overlay-rotation').value = rotation;
+      document.getElementById('overlay-rotation-val').textContent = rotation.toFixed(1);
+
+      map.setOverlayImage(apiUrl('/api/overlay/image'), b, { opacity: opacity / 100, rotation: rotation });
     };
     img.src = apiUrl('/api/overlay/image') + '?t=' + Date.now();
   }

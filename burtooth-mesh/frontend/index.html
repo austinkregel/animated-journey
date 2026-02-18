@@ -316,11 +316,40 @@
               <button class="btn-secondary btn-sm" id="overlay-fit">Fit to Overlay</button>
               <button class="btn-danger btn-sm" id="overlay-remove">Remove</button>
             </div>
-            <div style="margin-top:10px;">
+            <hr class="form-divider" style="margin:12px 0;">
+            <h4 style="font-size:12px;color:#b0b0c0;margin-bottom:8px;">Fine-Tune</h4>
+            <div class="settings-form">
               <div class="form-group">
-                <label>Opacity</label>
+                <label>Rotation (<span id="overlay-rotation-val">0</span>&deg;)</label>
+                <input type="range" id="overlay-rotation" min="-15" max="15" value="0" step="0.1">
+              </div>
+              <div class="form-group">
+                <label>Opacity (<span id="overlay-opacity-val">85</span>%)</label>
                 <input type="range" id="overlay-opacity" min="0" max="100" value="85" step="5">
-                <span id="overlay-opacity-val" style="font-size:11px;color:#888;">85%</span>
+              </div>
+            </div>
+            <div style="margin-top:8px;">
+              <label style="font-size:12px;color:#888;display:block;margin-bottom:6px;">Nudge Position</label>
+              <div class="overlay-nudge-grid">
+                <div></div>
+                <button class="btn-secondary btn-sm overlay-nudge-btn" data-dir="n" title="North">&uarr;</button>
+                <div></div>
+                <button class="btn-secondary btn-sm overlay-nudge-btn" data-dir="w" title="West">&larr;</button>
+                <span class="overlay-nudge-center">+</span>
+                <button class="btn-secondary btn-sm overlay-nudge-btn" data-dir="e" title="East">&rarr;</button>
+                <div></div>
+                <button class="btn-secondary btn-sm overlay-nudge-btn" data-dir="s" title="South">&darr;</button>
+                <div></div>
+              </div>
+              <div class="form-group" style="margin-top:6px;">
+                <label>Step size</label>
+                <select id="overlay-nudge-step">
+                  <option value="0.000005">~0.5m</option>
+                  <option value="0.00001">~1m</option>
+                  <option value="0.00005" selected>~5m</option>
+                  <option value="0.0001">~10m</option>
+                  <option value="0.0005">~50m</option>
+                </select>
               </div>
             </div>
           </div>
