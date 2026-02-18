@@ -5,6 +5,76 @@
     return basePath + path;
   }
 
+  // ---- Modal Dialog ----
+  function showModal(title, fields, callback) {
+    var overlay = document.getElementById('modal-overlay');
+    var titleEl = document.getElementById('modal-title');
+    var bodyEl = document.getElementById('modal-body');
+    var actionsEl = document.getElementById('modal-actions');
+
+    titleEl.textContent = title;
+    bodyEl.innerHTML = '';
+    actionsEl.innerHTML = '';
+
+    var inputs = {};
+    fields.forEach(function (f) {
+      var label = document.createElement('label');
+      label.textContent = f.label;
+      bodyEl.appendChild(label);
+
+      if (f.type === 'select') {
+        var select = document.createElement('select');
+        f.options.forEach(function (opt) {
+          var o = document.createElement('option');
+          o.value = opt.value;
+          o.textContent = opt.label;
+          if (opt.value === f.value) o.selected = true;
+          select.appendChild(o);
+        });
+        bodyEl.appendChild(select);
+        inputs[f.id] = select;
+      } else {
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = f.placeholder || '';
+        input.value = f.value || '';
+        bodyEl.appendChild(input);
+        inputs[f.id] = input;
+      }
+    });
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn-secondary btn-sm';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', function () { overlay.style.display = 'none'; });
+
+    var okBtn = document.createElement('button');
+    okBtn.className = 'btn-primary btn-sm';
+    okBtn.textContent = 'OK';
+    okBtn.addEventListener('click', function () {
+      var result = {};
+      Object.keys(inputs).forEach(function (k) { result[k] = inputs[k].value; });
+      overlay.style.display = 'none';
+      callback(result);
+    });
+
+    actionsEl.appendChild(cancelBtn);
+    actionsEl.appendChild(okBtn);
+    overlay.style.display = 'flex';
+
+    var firstInput = bodyEl.querySelector('input');
+    if (firstInput) setTimeout(function () { firstInput.focus(); }, 50);
+  }
+
+  function showConfirm(message, callback) {
+    showModal('Confirm', [{ id: '_msg', label: message, type: 'text', placeholder: '', value: '' }], function () {
+      callback();
+    });
+    var bodyEl = document.getElementById('modal-body');
+    var input = bodyEl.querySelector('input');
+    if (input) input.style.display = 'none';
+  }
+
   // ---- Map ----
   var map = initMap('map');
   var selectedNodeType = 'perimeter';
@@ -16,6 +86,17 @@
       updateActiveNodesCount(nodes.length);
     },
   });
+
+  window._showNodeEditModal = function (node, placer) {
+    var types = Object.keys(placer.getTypeColors());
+    var typeOptions = types.map(function (t) { return { value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }; });
+    showModal('Edit Node', [
+      { id: 'nodeId', label: 'Node ID', type: 'text', value: node.node_id },
+      { id: 'nodeType', label: 'Type', type: 'select', options: typeOptions, value: node.type },
+    ], function (result) {
+      placer.applyNodeEdit(node, result.nodeId, result.nodeType);
+    });
+  };
 
   // ---- Live View ----
   var liveView = new LiveView(map, {
@@ -111,9 +192,13 @@
   // ---- Map Click -> Place Node ----
   map.on('click', function (e) {
     if (currentTab !== 'map') return;
-    var nodeId = prompt('Enter node ID:');
-    if (!nodeId) return;
-    nodePlacer.addNode(e.latlng, nodeId, selectedNodeType);
+    var latlng = e.latlng;
+    showModal('Place Node', [
+      { id: 'nodeId', label: 'Node ID', type: 'text', placeholder: 'e.g. front-porch' },
+    ], function (result) {
+      if (!result.nodeId) return;
+      nodePlacer.addNode(latlng, result.nodeId, selectedNodeType);
+    });
   });
 
   // ---- Node List Rendering ----
@@ -500,15 +585,16 @@
   }
 
   function restartNode(nodeId) {
-    if (!confirm('Restart node ' + nodeId + '?')) return;
-    fetch(apiUrl('/api/nodes/' + nodeId + '/restart'), { method: 'POST' })
-      .then(function () {
-        showToast(nodeId + ' restarting...');
-        setTimeout(loadFirmwareNodes, 5000);
-      })
-      .catch(function (err) {
-        showToast('Restart failed: ' + err.message, 'error');
-      });
+    showConfirm('Restart node ' + nodeId + '?', function () {
+      fetch(apiUrl('/api/nodes/' + nodeId + '/restart'), { method: 'POST' })
+        .then(function () {
+          showToast(nodeId + ' restarting...');
+          setTimeout(loadFirmwareNodes, 5000);
+        })
+        .catch(function (err) {
+          showToast('Restart failed: ' + err.message, 'error');
+        });
+    });
   }
 
   // ---- Firmware Upload ----
@@ -772,13 +858,14 @@
   });
 
   document.getElementById('overlay-remove').addEventListener('click', function () {
-    if (!confirm('Remove the overlay image?')) return;
-    fetch(apiUrl('/api/overlay'), { method: 'DELETE' })
-      .then(function () {
-        map.removeOverlayImage();
-        hideOverlayControls();
-        showToast('Overlay removed');
-      });
+    showConfirm('Remove the overlay image?', function () {
+      fetch(apiUrl('/api/overlay'), { method: 'DELETE' })
+        .then(function () {
+          map.removeOverlayImage();
+          hideOverlayControls();
+          showToast('Overlay removed');
+        });
+    });
   });
 
   document.getElementById('overlay-opacity').addEventListener('input', function () {

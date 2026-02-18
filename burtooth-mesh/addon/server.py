@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import os
-
+import time
 from pathlib import Path
 
 from aiohttp import web
@@ -331,6 +331,7 @@ async def start_background_tasks(app: web.Application):
     mqtt_config = await ha_api.get_mqtt_config()
     mqtt = mqtt_client.MQTTClient()
     app["mqtt"] = mqtt
+    app["node_statuses"] = {}
 
     config = _load_config()
     engine = PositioningEngine(ha_api=ha_api, config=config)
@@ -341,7 +342,35 @@ async def start_background_tasks(app: web.Application):
     app["route_analyzer"] = RouteAnalyzer()
     app["llm"] = LLMQuery(ha_api)
 
+    async def _handle_node_status(topic: str, payload):
+        parts = topic.split("/")
+        if len(parts) < 3:
+            return
+        node_id = parts[2]
+        statuses = app["node_statuses"]
+        if isinstance(payload, dict):
+            statuses[node_id] = {
+                "online": payload.get("online", True),
+                "firmware_version": payload.get("firmware_version", ""),
+                "ip": payload.get("ip", ""),
+                "uptime": payload.get("uptime"),
+                "last_seen": time.time(),
+            }
+        else:
+            statuses.setdefault(node_id, {})["last_seen"] = time.time()
+            statuses[node_id]["online"] = True
+
+        ota_progress = None
+        if isinstance(payload, dict):
+            ota_progress = payload.get("ota_progress")
+        if ota_progress is not None:
+            ota_jobs = app.setdefault("ota_jobs", {})
+            job = ota_jobs.setdefault(node_id, {})
+            job["progress"] = ota_progress
+            job["status"] = payload.get("ota_status", "deploying")
+
     if mqtt_config:
+        mqtt.register_handler("burtooth/nodes/#", _handle_node_status)
         app["mqtt_task"] = asyncio.create_task(mqtt.connect(mqtt_config))
         await engine.start(mqtt)
     else:

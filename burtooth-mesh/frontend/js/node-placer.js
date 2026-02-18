@@ -151,22 +151,27 @@ class NodePlacer {
   }
 
   _editNode(node) {
-    const newId = prompt('Node ID:', node.node_id);
-    if (newId === null) return;
-    const types = Object.keys(this.typeColors);
-    const newType = prompt('Type (' + types.join(', ') + '):', node.type);
-    if (newType === null) return;
+    if (typeof window._showNodeEditModal !== 'function') return;
+    window._showNodeEditModal(node, this);
+  }
 
+  applyNodeEdit(node, newId, newType) {
     const oldId = node.node_id;
     const marker = this.markers[oldId];
+    if (!marker) return;
 
-    if (newId !== oldId) {
+    const types = Object.keys(this.typeColors);
+
+    if (newId && newId !== oldId) {
       delete this.markers[oldId];
       this.markers[newId] = marker;
+      node.node_id = newId;
     }
 
-    node.node_id = newId || oldId;
-    node.type = types.includes(newType) ? newType : node.type;
+    if (newType && types.includes(newType)) {
+      node.type = newType;
+    }
+
     marker.setIcon(this._createIcon(node.type, node.status));
     marker.setPopupContent(this._buildPopupContent(node));
     this.onNodeChange(this.getNodes());
