@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Burtooth Mesh</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="app">
+    <nav id="sidebar">
+      <div class="sidebar-header">
+        <h1>Burtooth Mesh</h1>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-tab="map">Map</button>
+        <button class="tab" data-tab="live">Live</button>
+        <button class="tab" data-tab="paths">Paths</button>
+        <button class="tab" data-tab="calibration">Cal</button>
+        <button class="tab" data-tab="firmware">FW</button>
+        <button class="tab" data-tab="settings">Settings</button>
+      </div>
+
+      <!-- Map Tab -->
+      <div class="tab-content active" id="tab-map">
+        <div class="panel">
+          <h3>Place Node</h3>
+          <p class="hint">Click the map to place a scanner node.</p>
+          <div class="node-type-selector" id="node-type-selector">
+            <button class="node-type-btn active" data-type="perimeter">
+              <span class="dot" style="background:#22c55e"></span> Perimeter
+            </button>
+            <button class="node-type-btn" data-type="attic">
+              <span class="dot" style="background:#3b82f6"></span> Attic
+            </button>
+            <button class="node-type-btn" data-type="strategic">
+              <span class="dot" style="background:#f97316"></span> Strategic
+            </button>
+            <button class="node-type-btn" data-type="lora">
+              <span class="dot" style="background:#a855f7"></span> LoRa
+            </button>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Nodes</h3>
+          <ul id="node-list"></ul>
+          <div id="node-list-empty" class="empty-state">No nodes placed yet</div>
+        </div>
+        <button id="save-config" class="btn-primary">Save Configuration</button>
+      </div>
+
+      <!-- Live View Tab -->
+      <div class="tab-content" id="tab-live">
+        <div class="panel">
+          <h3>Live Tracking</h3>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <span style="font-size:12px;color:#888;">Tracked devices</span>
+            <span class="device-count-badge" id="live-device-count">0</span>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">Show trails</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="trail-toggle" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Filters</h3>
+          <div class="filter-section">
+            <div class="device-type-filters" id="device-type-filters">
+              <label class="filter-checkbox">
+                <input type="checkbox" data-dtype="phone" checked>
+                <span class="dot" style="background:#3b82f6;width:8px;height:8px;border-radius:50%;display:inline-block;"></span>
+                Phone
+              </label>
+              <label class="filter-checkbox">
+                <input type="checkbox" data-dtype="wearable" checked>
+                <span class="dot" style="background:#22c55e;width:8px;height:8px;border-radius:50%;display:inline-block;"></span>
+                Wearable
+              </label>
+              <label class="filter-checkbox">
+                <input type="checkbox" data-dtype="car" checked>
+                <span class="dot" style="background:#ef4444;width:8px;height:8px;border-radius:50%;display:inline-block;"></span>
+                Car
+              </label>
+              <label class="filter-checkbox">
+                <input type="checkbox" data-dtype="unknown" checked>
+                <span class="dot" style="background:#9ca3af;width:8px;height:8px;border-radius:50%;display:inline-block;"></span>
+                Unknown
+              </label>
+            </div>
+            <div class="filter-row">
+              <label>Min RSSI</label>
+              <input type="range" id="filter-rssi" min="-100" max="-30" value="-100" step="1">
+              <span id="filter-rssi-val" style="font-size:11px;color:#888;min-width:40px;text-align:right;">-100</span>
+            </div>
+            <div class="filter-row">
+              <label>Time (s)</label>
+              <input type="range" id="filter-time" min="30" max="3600" value="300" step="30">
+              <span id="filter-time-val" style="font-size:11px;color:#888;min-width:40px;text-align:right;">300</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Paths Tab -->
+      <div class="tab-content" id="tab-paths">
+        <div class="panel">
+          <h3>Recorded Paths</h3>
+          <ul class="path-list" id="path-list"></ul>
+          <div id="path-list-empty" class="empty-state">No recorded paths</div>
+        </div>
+        <div class="panel" id="playback-panel" style="display:none;">
+          <h3>Playback</h3>
+          <div class="playback-controls">
+            <div class="playback-buttons">
+              <button class="playback-btn" id="pb-stop" title="Stop">&#9632;</button>
+              <button class="playback-btn" id="pb-play" title="Play/Pause">&#9654;</button>
+              <div class="speed-selector">
+                <button class="speed-btn active" data-speed="1">1x</button>
+                <button class="speed-btn" data-speed="2">2x</button>
+                <button class="speed-btn" data-speed="5">5x</button>
+                <button class="speed-btn" data-speed="10">10x</button>
+              </div>
+            </div>
+            <div class="playback-timeline">
+              <input type="range" id="pb-scrub" min="0" max="100" value="0">
+              <div class="playback-time">
+                <span id="pb-time-current">0:00</span>
+                <span id="pb-time-total">0:00</span>
+              </div>
+            </div>
+            <div class="path-speed-legend">
+              <span><span class="legend-dot" style="background:#22c55e"></span> Slow</span>
+              <span><span class="legend-dot" style="background:#eab308"></span> Walking</span>
+              <span><span class="legend-dot" style="background:#ef4444"></span> Driving</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Calibration Tab -->
+      <div class="tab-content" id="tab-calibration">
+        <div class="panel">
+          <h3>Auto-Calibration</h3>
+          <div class="calibration-status-grid" id="cal-status-grid">
+            <div class="cal-stat">
+              <div class="cal-stat-value" id="cal-r2">--</div>
+              <div class="cal-stat-label">R&sup2;</div>
+            </div>
+            <div class="cal-stat">
+              <div class="cal-stat-value" id="cal-samples">--</div>
+              <div class="cal-stat-label">Samples</div>
+            </div>
+            <div class="cal-stat">
+              <div class="cal-stat-value" id="cal-confidence">--</div>
+              <div class="cal-stat-label">Confidence</div>
+            </div>
+            <div class="cal-stat">
+              <div class="cal-stat-value" id="cal-status-text">--</div>
+              <div class="cal-stat-label">Status</div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Path Loss Parameters</h3>
+          <div class="cal-node-params" id="cal-node-params">
+            <div class="empty-state">No calibration data</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>RSSI Readings</h3>
+          <div id="cal-rssi-readings">
+            <div class="empty-state">Waiting for data...</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Manual Calibration</h3>
+          <p class="hint" style="margin-bottom:8px;">Walk to each waypoint and tap "I'm Here".</p>
+          <div class="btn-group">
+            <button class="btn-secondary" id="cal-start-manual">Start Calibration</button>
+            <button class="btn-primary" id="cal-mark-here" disabled>I'm Here</button>
+            <button class="btn-danger btn-sm" id="cal-stop-manual" style="display:none;">Stop</button>
+          </div>
+          <div id="cal-manual-progress" style="margin-top:8px;font-size:12px;color:#888;"></div>
+        </div>
+      </div>
+
+      <!-- Firmware Tab -->
+      <div class="tab-content" id="tab-firmware">
+        <div class="panel">
+          <h3>Connected Nodes</h3>
+          <div class="firmware-node-list" id="firmware-node-list">
+            <div class="empty-state">
+              <div class="empty-state-icon">&#9881;</div>
+              Scanning for nodes...
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Upload Firmware</h3>
+          <div class="firmware-upload-zone" id="firmware-upload-zone">
+            <div>Drop .bin file here or click to select</div>
+            <input type="file" id="firmware-file-input" accept=".bin" style="display:none;">
+          </div>
+          <div id="firmware-upload-status" style="margin-top:8px;font-size:12px;color:#888;"></div>
+        </div>
+      </div>
+
+      <!-- Settings Tab -->
+      <div class="tab-content" id="tab-settings">
+        <div class="panel">
+          <h3>MQTT</h3>
+          <div class="settings-form">
+            <div class="form-group">
+              <label>Topic Prefix</label>
+              <input type="text" id="setting-mqtt-prefix" value="burtooth" placeholder="burtooth">
+              <span class="form-hint">Base MQTT topic for all messages</span>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Scanning</h3>
+          <div class="settings-form">
+            <div class="form-group">
+              <label>Scan Interval (ms)</label>
+              <input type="number" id="setting-scan-interval" value="500" min="100" max="10000" step="100">
+            </div>
+            <div class="form-group">
+              <label>Report Interval (ms)</label>
+              <input type="number" id="setting-report-interval" value="2000" min="500" max="30000" step="500">
+            </div>
+            <div class="toggle-row">
+              <span class="toggle-label">Active Scanning</span>
+              <label class="toggle-switch">
+                <input type="checkbox" id="setting-active-scan">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Tracking</h3>
+          <div class="settings-form">
+            <div class="form-group">
+              <label>Device Timeout (s)</label>
+              <input type="number" id="setting-device-timeout" value="300" min="30" max="3600" step="30">
+              <span class="form-hint">Remove devices after this many seconds of silence</span>
+            </div>
+            <div class="form-group">
+              <label>Path Min Points</label>
+              <input type="number" id="setting-path-min-points" value="5" min="2" max="100">
+              <span class="form-hint">Minimum points to record a path</span>
+            </div>
+          </div>
+        </div>
+        <button id="save-settings" class="btn-primary">Save Settings</button>
+      </div>
+
+      <!-- Status Bar -->
+      <div id="status-bar">
+        <div class="status-item">
+          <span class="status-dot offline" id="mqtt-status-dot"></span>
+          <span id="mqtt-status-text">MQTT</span>
+        </div>
+        <div class="status-item">
+          <span id="active-nodes-count">0 nodes</span>
+        </div>
+        <div class="status-item">
+          <span id="tracked-devices-count">0 devices</span>
+        </div>
+      </div>
+    </nav>
+    <div id="map"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+          crossorigin=""></script>
+  <script src="js/map.js"></script>
+  <script src="js/node-placer.js"></script>
+  <script src="js/live-view.js"></script>
+  <script src="js/path-viewer.js"></script>
+  <script src="js/calibration.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

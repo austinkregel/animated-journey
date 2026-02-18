@@ -1,0 +1,14 @@
+FROM espressif/idf:v5.4
+
+WORKDIR /project
+
+COPY common/ /project/common/
+COPY scanner-s3/ /project/scanner-s3/
+COPY scanner-c6/ /project/scanner-c6/
+
+ARG TARGET=scanner-s3
+ARG IDF_TARGET=esp32s3
+
+RUN cd /project/${TARGET} && \
+    idf.py set-target ${IDF_TARGET} && \
+    idf.py build

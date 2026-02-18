@@ -1,0 +1,27 @@
+# Firmware (compiled separately, not part of the add-on container)
+firmware/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Git
+.git/
+.gitignore
+
+# Dev files
+*.md
+LICENSE
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,26 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "wifi_scanner.c"
+        "ble_scanner.c"
+        "ieee802154_scanner.c"
+        "lora_scanner.c"
+        "../../common/src/mqtt_reporter.c"
+        "../../common/src/ota_client.c"
+        "../../common/src/nvs_config.c"
+    INCLUDE_DIRS
+        "."
+        "../../common/include"
+    REQUIRES
+        esp_wifi
+        nvs_flash
+        esp_event
+        esp_netif
+        mqtt
+        bt
+        esp_https_ota
+        esp_http_client
+        json
+        esp_sntp
+        ieee802154
+)

@@ -1,0 +1,7 @@
+aiohttp
+paho-mqtt
+numpy
+scipy
+filterpy
+aiohttp-jinja2
+aiosqlite

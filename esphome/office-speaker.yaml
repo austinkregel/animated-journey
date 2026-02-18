@@ -1,0 +1,28 @@
+esphome:
+  name: office-speaker
+  friendly_name: Office Speaker BLE Proxy
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+substitutions:
+  device_name: "office-speaker"
+
+packages:
+  ble_proxy: !include ble-proxy-base.yaml

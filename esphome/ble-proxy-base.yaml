@@ -1,0 +1,35 @@
+substitutions:
+  mqtt_broker: "192.168.3.52"
+  mqtt_topic_prefix: "burtooth"
+
+mqtt:
+  broker: ${mqtt_broker}
+  port: 1883
+  topic_prefix: "${mqtt_topic_prefix}/esphome/${device_name}"
+
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 100ms
+    window: 100ms
+    active: false
+
+  on_ble_advertise:
+    - then:
+        - mqtt.publish_json:
+            topic: "${mqtt_topic_prefix}/scan/ble/adv/${device_name}"
+            payload: |-
+              root["node_id"] = "${device_name}";
+              root["ts"] = id(sntp_time).now().timestamp;
+              root["mac"] = x.address_str();
+              root["rssi"] = x.get_rssi();
+              root["type"] = "ble_adv";
+              if (x.get_name().length() > 0)
+                root["name"] = x.get_name();
+              if (x.get_tx_powers().size() > 0)
+                root["tx_power"] = x.get_tx_powers()[0];
+
+time:
+  - platform: sntp
+    id: sntp_time
+    servers:
+      - pool.ntp.org
