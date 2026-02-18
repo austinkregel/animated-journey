@@ -793,6 +793,17 @@
     map.setOverlayRotation(deg);
   });
 
+  function syncBoundsFields() {
+    var b = map._overlayBounds;
+    if (!b) return;
+    document.getElementById('overlay-north').value = b.north.toFixed(8);
+    document.getElementById('overlay-south').value = b.south.toFixed(8);
+    document.getElementById('overlay-east').value = b.east.toFixed(8);
+    document.getElementById('overlay-west').value = b.west.toFixed(8);
+    document.getElementById('overlay-center-lat').value = ((b.north + b.south) / 2).toFixed(8);
+    document.getElementById('overlay-center-lng').value = ((b.east + b.west) / 2).toFixed(8);
+  }
+
   document.querySelectorAll('.overlay-nudge-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var dir = btn.dataset.dir;
@@ -803,20 +814,28 @@
       else if (dir === 'e') dlng = step;
       else if (dir === 'w') dlng = -step;
       map.nudgeOverlay(dlat, dlng);
-
-      var b = map._overlayBounds;
-      if (b) {
-        document.getElementById('overlay-north').value = b.north.toFixed(8);
-        document.getElementById('overlay-south').value = b.south.toFixed(8);
-        document.getElementById('overlay-east').value = b.east.toFixed(8);
-        document.getElementById('overlay-west').value = b.west.toFixed(8);
-
-        var centerLat = (b.north + b.south) / 2;
-        var centerLng = (b.east + b.west) / 2;
-        document.getElementById('overlay-center-lat').value = centerLat.toFixed(8);
-        document.getElementById('overlay-center-lng').value = centerLng.toFixed(8);
-      }
+      syncBoundsFields();
     });
+  });
+
+  var overlayScale = 1.0;
+
+  document.getElementById('overlay-scale-up').addEventListener('click', function () {
+    var step = parseFloat(document.getElementById('overlay-scale-step').value);
+    var factor = 1 + step;
+    overlayScale *= factor;
+    map.scaleOverlay(factor);
+    syncBoundsFields();
+    document.getElementById('overlay-scale-label').textContent = (overlayScale * 100).toFixed(1) + '%';
+  });
+
+  document.getElementById('overlay-scale-down').addEventListener('click', function () {
+    var step = parseFloat(document.getElementById('overlay-scale-step').value);
+    var factor = 1 - step;
+    overlayScale *= factor;
+    map.scaleOverlay(factor);
+    syncBoundsFields();
+    document.getElementById('overlay-scale-label').textContent = (overlayScale * 100).toFixed(1) + '%';
   });
 
   function loadOverlayFromSettings(settings) {

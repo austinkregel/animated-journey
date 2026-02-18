@@ -857,6 +857,20 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 12px;
 }
 
+.overlay-scale-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.overlay-scale-label {
+  font-size: 12px;
+  color: #aaa;
+  min-width: 40px;
+  text-align: center;
+  font-family: 'SF Mono', 'Consolas', monospace;
+}
+
 /* ---- Calibration ---- */
 
 .calibration-status-grid {

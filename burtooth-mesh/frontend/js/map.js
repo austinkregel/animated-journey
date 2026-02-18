@@ -60,12 +60,31 @@ function initMap(containerId) {
     b.south += dlat;
     b.east += dlng;
     b.west += dlng;
-    var leafletBounds = L.latLngBounds([b.south, b.west], [b.north, b.east]);
-    map._overlayLayer.setBounds(leafletBounds);
-    if (map._overlayRotation !== 0) {
-      _applyOverlayRotation(map);
-    }
+    _refreshOverlayBounds(map);
   };
+
+  map.scaleOverlay = function (factor) {
+    if (!map._overlayBounds || !map._overlayLayer) return;
+    var b = map._overlayBounds;
+    var centerLat = (b.north + b.south) / 2;
+    var centerLng = (b.east + b.west) / 2;
+    var halfLat = (b.north - b.south) / 2;
+    var halfLng = (b.east - b.west) / 2;
+    b.north = centerLat + halfLat * factor;
+    b.south = centerLat - halfLat * factor;
+    b.east = centerLng + halfLng * factor;
+    b.west = centerLng - halfLng * factor;
+    _refreshOverlayBounds(map);
+  };
+
+  function _refreshOverlayBounds(m) {
+    var b = m._overlayBounds;
+    var leafletBounds = L.latLngBounds([b.south, b.west], [b.north, b.east]);
+    m._overlayLayer.setBounds(leafletBounds);
+    if (m._overlayRotation !== 0) {
+      _applyOverlayRotation(m);
+    }
+  }
 
   map.removeOverlayImage = function () {
     if (map._overlayLayer) {
