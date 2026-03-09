@@ -28,7 +28,7 @@
       <div class="tab-content active" id="tab-map">
         <div class="panel">
           <h3>Place Node</h3>
-          <p class="hint">Click the map to place a scanner node.</p>
+          <p class="hint">Click the map to place a scanner node (coordinates in meters).</p>
           <div class="node-type-selector" id="node-type-selector">
             <button class="node-type-btn active" data-type="perimeter">
               <span class="dot" style="background:#22c55e"></span> Perimeter
@@ -48,6 +48,26 @@
           <h3>Nodes</h3>
           <ul id="node-list"></ul>
           <div id="node-list-empty" class="empty-state">No nodes placed yet</div>
+        </div>
+        <div class="panel">
+          <h3>Floor Plan</h3>
+          <p class="hint">Set the dimensions of your area in meters, then upload a floor plan image.</p>
+          <div class="settings-form" style="margin-top:8px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div class="form-group">
+                <label>Width (m)</label>
+                <input type="number" id="area-width" value="30" min="1" max="1000" step="1">
+              </div>
+              <div class="form-group">
+                <label>Height (m)</label>
+                <input type="number" id="area-height" value="20" min="1" max="1000" step="1">
+              </div>
+            </div>
+          </div>
+          <div class="btn-group" style="margin-top:8px;">
+            <button class="btn-secondary btn-sm" id="apply-dimensions">Apply Dimensions</button>
+            <button class="btn-secondary btn-sm" id="toggle-grid">Show Grid</button>
+          </div>
         </div>
         <button id="save-config" class="btn-primary">Save Configuration</button>
       </div>
@@ -260,7 +280,7 @@
         </div>
         <div class="panel">
           <h3>Map Overlay</h3>
-          <p class="hint" style="margin-bottom:10px;">Upload a high-res aerial image (county/parcel map) to overlay on the map at close zoom levels.</p>
+          <p class="hint" style="margin-bottom:10px;">Upload a floor plan or property image to use as the map background.</p>
           <div class="overlay-upload-zone" id="overlay-upload-zone">
             <div id="overlay-upload-label">Drop image here or click to select</div>
             <input type="file" id="overlay-file-input" accept="image/*" style="display:none;">
@@ -269,45 +289,16 @@
           <div id="overlay-preview" style="display:none;margin-top:10px;">
             <img id="overlay-preview-img" style="width:100%;border-radius:6px;border:1px solid #3a3a4e;max-height:160px;object-fit:cover;">
           </div>
-          <div id="overlay-bounds-section" style="display:none;margin-top:10px;">
-            <h4 style="font-size:12px;color:#b0b0c0;margin-bottom:8px;">Position Overlay</h4>
-            <p class="hint" style="margin-bottom:8px;">Enter the center coordinates and zoom level from the source map. Bounds are auto-calculated from the image dimensions.</p>
+          <div id="overlay-controls-section" style="display:none;margin-top:10px;">
             <div class="settings-form">
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
                 <div class="form-group">
-                  <label>Center Latitude</label>
-                  <input type="number" id="overlay-center-lat" step="0.00000001" placeholder="Latitude">
+                  <label>Image Width (m)</label>
+                  <input type="number" id="overlay-width-m" step="0.1" min="1" max="2000" placeholder="30">
                 </div>
                 <div class="form-group">
-                  <label>Center Longitude</label>
-                  <input type="number" id="overlay-center-lng" step="0.00000001" placeholder="Longitude">
-                </div>
-                <div class="form-group">
-                  <label>Source Zoom Level</label>
-                  <input type="number" id="overlay-zoom" step="1" min="1" max="23" placeholder="19">
-                </div>
-                <div class="form-group">
-                  <label>&nbsp;</label>
-                  <button class="btn-secondary btn-sm" id="overlay-use-map-center">Use Current Map View</button>
-                </div>
-              </div>
-              <hr class="form-divider" style="margin:8px 0;">
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-                <div class="form-group">
-                  <label>North</label>
-                  <input type="number" id="overlay-north" step="0.00000001" readonly tabindex="-1" style="opacity:0.6;">
-                </div>
-                <div class="form-group">
-                  <label>South</label>
-                  <input type="number" id="overlay-south" step="0.00000001" readonly tabindex="-1" style="opacity:0.6;">
-                </div>
-                <div class="form-group">
-                  <label>West</label>
-                  <input type="number" id="overlay-west" step="0.00000001" readonly tabindex="-1" style="opacity:0.6;">
-                </div>
-                <div class="form-group">
-                  <label>East</label>
-                  <input type="number" id="overlay-east" step="0.00000001" readonly tabindex="-1" style="opacity:0.6;">
+                  <label>Image Height (m)</label>
+                  <input type="number" id="overlay-height-m" step="0.1" min="1" max="2000" placeholder="20">
                 </div>
               </div>
             </div>
@@ -324,44 +315,8 @@
                 <input type="range" id="overlay-rotation" min="-15" max="15" value="0" step="0.1">
               </div>
               <div class="form-group">
-                <label>Opacity (<span id="overlay-opacity-val">85</span>%)</label>
-                <input type="range" id="overlay-opacity" min="0" max="100" value="85" step="5">
-              </div>
-            </div>
-            <div style="margin-top:8px;">
-              <label style="font-size:12px;color:#888;display:block;margin-bottom:6px;">Nudge Position</label>
-              <div class="overlay-nudge-grid">
-                <div></div>
-                <button class="btn-secondary btn-sm overlay-nudge-btn" data-dir="n" title="North">&uarr;</button>
-                <div></div>
-                <button class="btn-secondary btn-sm overlay-nudge-btn" data-dir="w" title="West">&larr;</button>
-                <span class="overlay-nudge-center">+</span>
-                <button class="btn-secondary btn-sm overlay-nudge-btn" data-dir="e" title="East">&rarr;</button>
-                <div></div>
-                <button class="btn-secondary btn-sm overlay-nudge-btn" data-dir="s" title="South">&darr;</button>
-                <div></div>
-              </div>
-              <div class="form-group" style="margin-top:6px;">
-                <label>Step size</label>
-                <select id="overlay-nudge-step">
-                  <option value="0.000005">~0.5m</option>
-                  <option value="0.00001">~1m</option>
-                  <option value="0.00005" selected>~5m</option>
-                  <option value="0.0001">~10m</option>
-                  <option value="0.0005">~50m</option>
-                </select>
-              </div>
-              <label style="font-size:12px;color:#888;display:block;margin:10px 0 6px;">Scale</label>
-              <div class="overlay-scale-row">
-                <button class="btn-secondary btn-sm" id="overlay-scale-down" title="Shrink">&minus;</button>
-                <span class="overlay-scale-label" id="overlay-scale-label">100%</span>
-                <button class="btn-secondary btn-sm" id="overlay-scale-up" title="Grow">+</button>
-                <select id="overlay-scale-step" style="margin-left:8px;">
-                  <option value="0.005">0.5%</option>
-                  <option value="0.01" selected>1%</option>
-                  <option value="0.02">2%</option>
-                  <option value="0.05">5%</option>
-                </select>
+                <label>Opacity (<span id="overlay-opacity-val">100</span>%)</label>
+                <input type="range" id="overlay-opacity" min="0" max="100" value="100" step="5">
               </div>
             </div>
           </div>

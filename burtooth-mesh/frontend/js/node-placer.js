@@ -29,9 +29,9 @@ class NodePlacer {
   }
 
   _createIcon(type, status = 'online') {
-    const color = this.typeColors[type] || this.typeColors.scanner;
-    const opacity = status === 'offline' ? 0.4 : 1;
-    const ring = status === 'online'
+    var color = this.typeColors[type] || this.typeColors.scanner;
+    var opacity = status === 'offline' ? 0.4 : 1;
+    var ring = status === 'online'
       ? `box-shadow: 0 0 0 3px ${color}33, 0 0 8px ${color}66;`
       : `box-shadow: 0 0 0 2px #555;`;
 
@@ -53,11 +53,11 @@ class NodePlacer {
   }
 
   _buildPopupContent(node) {
-    const color = this.typeColors[node.type] || this.typeColors.scanner;
-    const statusDot = node.status === 'online'
+    var color = this.typeColors[node.type] || this.typeColors.scanner;
+    var statusDot = node.status === 'online'
       ? '<span class="status-dot online"></span> Online'
       : '<span class="status-dot offline"></span> Offline';
-    const lastSeen = node.last_seen
+    var lastSeen = node.last_seen
       ? new Date(node.last_seen).toLocaleString()
       : 'Never';
 
@@ -70,10 +70,13 @@ class NodePlacer {
         <div class="node-popup-body">
           <div class="node-popup-row">${statusDot}</div>
           <div class="node-popup-row">
-            <span class="label">Lat:</span> ${node.lat.toFixed(6)}
+            <span class="label">X:</span> ${node.x.toFixed(2)} m
           </div>
           <div class="node-popup-row">
-            <span class="label">Lng:</span> ${node.lng.toFixed(6)}
+            <span class="label">Y:</span> ${node.y.toFixed(2)} m
+          </div>
+          <div class="node-popup-row">
+            <span class="label">Z (height):</span> ${node.z.toFixed(2)} m
           </div>
           <div class="node-popup-row">
             <span class="label">Last seen:</span> ${lastSeen}
@@ -83,22 +86,23 @@ class NodePlacer {
     `;
   }
 
-  addNode(latlng, nodeId, type = 'scanner', options = {}) {
+  addNode(xy, nodeId, type = 'scanner', options = {}) {
     if (this.markers[nodeId]) {
       this.removeNode(nodeId);
     }
 
-    const node = {
+    var node = {
       node_id: nodeId,
       type: type,
-      lat: latlng.lat,
-      lng: latlng.lng,
+      x: xy.x != null ? xy.x : (xy.lng != null ? xy.lng : 0),
+      y: xy.y != null ? xy.y : (xy.lat != null ? xy.lat : 0),
+      z: options.z != null ? options.z : 0,
       status: options.status || 'online',
       last_seen: options.last_seen || null,
-      ...options,
     };
 
-    const marker = L.marker([node.lat, node.lng], {
+    // CRS.Simple: L.latLng(y, x)
+    var marker = L.marker([node.y, node.x], {
       draggable: true,
       icon: this._createIcon(node.type, node.status),
     }).addTo(this.map);
@@ -109,9 +113,9 @@ class NodePlacer {
     });
 
     marker.on('dragend', (e) => {
-      const pos = e.target.getLatLng();
-      node.lat = pos.lat;
-      node.lng = pos.lng;
+      var pos = e.target.getLatLng();
+      node.x = pos.lng;
+      node.y = pos.lat;
       marker.setPopupContent(this._buildPopupContent(node));
       this.onNodeChange(this.getNodes());
     });
@@ -128,7 +132,7 @@ class NodePlacer {
   }
 
   _showContextMenu(event, node) {
-    const menu = this.contextMenu;
+    var menu = this.contextMenu;
     menu.innerHTML = `
       <div class="ctx-item ctx-edit" data-action="edit">Edit Node</div>
       <div class="ctx-item ctx-delete" data-action="delete">Delete Node</div>
@@ -155,12 +159,12 @@ class NodePlacer {
     window._showNodeEditModal(node, this);
   }
 
-  applyNodeEdit(node, newId, newType) {
-    const oldId = node.node_id;
-    const marker = this.markers[oldId];
+  applyNodeEdit(node, newId, newType, newZ) {
+    var oldId = node.node_id;
+    var marker = this.markers[oldId];
     if (!marker) return;
 
-    const types = Object.keys(this.typeColors);
+    var types = Object.keys(this.typeColors);
 
     if (newId && newId !== oldId) {
       delete this.markers[oldId];
@@ -170,6 +174,10 @@ class NodePlacer {
 
     if (newType && types.includes(newType)) {
       node.type = newType;
+    }
+
+    if (newZ != null && !isNaN(parseFloat(newZ))) {
+      node.z = parseFloat(newZ);
     }
 
     marker.setIcon(this._createIcon(node.type, node.status));
@@ -190,8 +198,9 @@ class NodePlacer {
     return this.nodes.map((n) => ({
       node_id: n.node_id,
       type: n.type,
-      lat: n.lat,
-      lng: n.lng,
+      x: n.x,
+      y: n.y,
+      z: n.z,
       status: n.status,
       last_seen: n.last_seen,
     }));
@@ -206,20 +215,20 @@ class NodePlacer {
 
     (nodesArray || []).forEach((n) => {
       this.addNode(
-        { lat: n.lat, lng: n.lng },
+        { x: n.x || 0, y: n.y || 0 },
         n.node_id,
         n.type || 'scanner',
-        { status: n.status, last_seen: n.last_seen }
+        { z: n.z || 0, status: n.status, last_seen: n.last_seen }
       );
     });
   }
 
   updateNodeStatus(nodeId, status, lastSeen) {
-    const node = this.nodes.find((n) => n.node_id === nodeId);
+    var node = this.nodes.find((n) => n.node_id === nodeId);
     if (!node) return;
     node.status = status;
     node.last_seen = lastSeen || new Date().toISOString();
-    const marker = this.markers[nodeId];
+    var marker = this.markers[nodeId];
     if (marker) {
       marker.setIcon(this._createIcon(node.type, node.status));
       marker.setPopupContent(this._buildPopupContent(node));

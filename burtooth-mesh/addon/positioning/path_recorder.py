@@ -8,8 +8,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from addon.utils.geo import local_to_gps
-
 logger = logging.getLogger(__name__)
 
 PATHS_DIR = "/data/paths"
@@ -17,12 +15,12 @@ PATHS_DIR = "/data/paths"
 
 @dataclass
 class PathPoint:
-    lat: float
-    lng: float
     x: float
     y: float
+    z: float
     vx: float
     vy: float
+    vz: float
     timestamp: float
     signal_types: list[str] = field(default_factory=list)
 
@@ -55,7 +53,8 @@ class PathSession:
         for i in range(1, len(self.points)):
             dx = self.points[i].x - self.points[i - 1].x
             dy = self.points[i].y - self.points[i - 1].y
-            total += math.sqrt(dx * dx + dy * dy)
+            dz = self.points[i].z - self.points[i - 1].z
+            total += math.sqrt(dx * dx + dy * dy + dz * dz)
         return total
 
     @property
@@ -99,10 +98,12 @@ class PathSession:
         summary = self.to_summary()
         summary["points"] = [
             {
-                "lat": p.lat,
-                "lng": p.lng,
+                "x": round(p.x, 3),
+                "y": round(p.y, 3),
+                "z": round(p.z, 3),
                 "vx": round(p.vx, 3),
                 "vy": round(p.vy, 3),
+                "vz": round(p.vz, 3),
                 "timestamp": p.timestamp,
                 "signal_types": p.signal_types,
             }
@@ -116,11 +117,10 @@ def _mac_hash(mac: str) -> str:
 
 
 class PathRecorder:
-    """Records and stores travel paths for tracked devices."""
+    """Records and stores travel paths for tracked devices in local 3D coordinates."""
 
-    def __init__(self, origin_lat: float, origin_lng: float):
+    def __init__(self):
         self._active_paths: dict[str, PathSession] = {}
-        self._origin = (origin_lat, origin_lng)
 
     async def start(self) -> None:
         os.makedirs(PATHS_DIR, exist_ok=True)
@@ -131,21 +131,18 @@ class PathRecorder:
         mac: str,
         x: float,
         y: float,
+        z: float,
         vx: float,
         vy: float,
+        vz: float,
         timestamp: float,
         signal_types: Optional[list[str]] = None,
     ) -> None:
         mac_lower = mac.lower()
-        lat, lng = local_to_gps(x, y, self._origin[0], self._origin[1])
 
         point = PathPoint(
-            lat=lat,
-            lng=lng,
-            x=x,
-            y=y,
-            vx=vx,
-            vy=vy,
+            x=x, y=y, z=z,
+            vx=vx, vy=vy, vz=vz,
             timestamp=timestamp,
             signal_types=signal_types or [],
         )
@@ -230,7 +227,6 @@ class PathRecorder:
                 if since and data.get("start_time", 0) < since:
                     continue
 
-                # Return summary without full point data
                 summary = {k: v for k, v in data.items() if k != "points"}
                 summary["point_count"] = len(data.get("points", []))
                 results.append(summary)
@@ -243,7 +239,7 @@ class PathRecorder:
         return results
 
     async def get_path_detail(self, path_id: str) -> Optional[dict]:
-        """Load full path detail including all GPS points."""
+        """Load full path detail including all points."""
         filename = f"{path_id}.json"
         filepath = os.path.join(PATHS_DIR, filename)
 

@@ -49,7 +49,7 @@ class LiveView {
     fetch(this.apiBase + '/api/positions')
       .then((r) => r.json())
       .then((data) => {
-        this._updateDevices(data.devices || []);
+        this._updateDevices(data.devices || data || []);
         this.onDeviceUpdate(this.getDeviceCount());
       })
       .catch((err) => {
@@ -63,21 +63,26 @@ class LiveView {
   }
 
   _updateDevices(deviceList) {
-    const now = Date.now();
-    const cutoff = now - this.filters.timeRange * 1000;
-    const seen = new Set();
+    var now = Date.now();
+    var cutoff = now - this.filters.timeRange * 1000;
+    var seen = new Set();
+
+    this.rssiLayer.clearLayers();
 
     deviceList.forEach((dev) => {
       if (!this.filters.types.has(dev.type || 'unknown')) return;
       if ((dev.rssi || -100) < this.filters.minRssi) return;
 
-      const ts = dev.timestamp ? new Date(dev.timestamp).getTime() : now;
+      var ts = dev.last_seen ? dev.last_seen * 1000 : (dev.timestamp ? new Date(dev.timestamp).getTime() : now);
       if (ts < cutoff) return;
 
-      const id = dev.mac_hash;
+      var id = dev.mac_hash;
       seen.add(id);
-      const type = dev.type || 'unknown';
-      const color = this.typeColors[type] || this.typeColors.unknown;
+      var type = dev.type || 'unknown';
+      var color = this.typeColors[type] || this.typeColors.unknown;
+
+      // Derive z-based opacity: higher z = more opaque ring
+      var zOpacity = dev.z != null ? Math.min(1, 0.5 + Math.abs(dev.z) / 20) : 0.85;
 
       if (!this.devices[id]) {
         this.devices[id] = {
@@ -88,10 +93,11 @@ class LiveView {
         };
       }
 
-      const entry = this.devices[id];
+      var entry = this.devices[id];
       entry.data = dev;
 
-      const latlng = L.latLng(dev.lat, dev.lng);
+      // CRS.Simple: latLng(y, x)
+      var latlng = L.latLng(dev.y, dev.x);
 
       if (entry.marker) {
         entry.marker.setLatLng(latlng);
@@ -99,7 +105,7 @@ class LiveView {
         entry.marker = L.circleMarker(latlng, {
           radius: 6,
           fillColor: color,
-          fillOpacity: 0.85,
+          fillOpacity: zOpacity,
           color: '#fff',
           weight: 1.5,
         }).addTo(this.deviceLayer);
@@ -110,7 +116,7 @@ class LiveView {
         });
       }
 
-      entry.marker.setStyle({ fillColor: color });
+      entry.marker.setStyle({ fillColor: color, fillOpacity: zOpacity });
 
       if (this.trailMode) {
         entry.trail.push(latlng);
@@ -125,8 +131,9 @@ class LiveView {
 
     Object.keys(this.devices).forEach((id) => {
       if (!seen.has(id)) {
-        const entry = this.devices[id];
-        const age = now - new Date(entry.data.timestamp || 0).getTime();
+        var entry = this.devices[id];
+        var lastSeen = entry.data.last_seen ? entry.data.last_seen * 1000 : 0;
+        var age = now - lastSeen;
         if (age > this.filters.timeRange * 1000) {
           this._removeDevice(id);
         }
@@ -151,9 +158,9 @@ class LiveView {
   _drawRssiRings(dev, color) {
     if (!dev.detecting_nodes) return;
     dev.detecting_nodes.forEach((dn) => {
-      if (!dn.lat || !dn.lng) return;
-      const radius = this._rssiToRadius(dn.rssi);
-      L.circle([dn.lat, dn.lng], {
+      if (dn.x == null || dn.y == null) return;
+      var radius = this._rssiToRadius(dn.rssi);
+      L.circle([dn.y, dn.x], {
         radius: radius,
         color: color,
         fillColor: color,
@@ -165,27 +172,44 @@ class LiveView {
   }
 
   _rssiToRadius(rssi) {
-    const clamped = Math.max(-100, Math.min(-30, rssi));
+    var clamped = Math.max(-100, Math.min(-30, rssi));
     return ((clamped + 100) / 70) * 2 + 3;
   }
 
-  _buildDevicePopup(dev) {
-    const type = dev.type || 'unknown';
-    const color = this.typeColors[type] || this.typeColors.unknown;
-    const lastSeen = dev.timestamp
-      ? new Date(dev.timestamp).toLocaleTimeString()
-      : '—';
+  _floorLabel(z) {
+    if (z == null) return '';
+    if (z < 1.5) return 'Ground';
+    var floor = Math.round(z / 3);
+    return 'Floor ' + floor;
+  }
 
-    let nodesHtml = '';
+  _buildDevicePopup(dev) {
+    var type = dev.type || 'unknown';
+    var color = this.typeColors[type] || this.typeColors.unknown;
+    var lastSeen = dev.last_seen
+      ? new Date(dev.last_seen * 1000).toLocaleTimeString()
+      : (dev.timestamp ? new Date(dev.timestamp).toLocaleTimeString() : '\u2014');
+
+    var nodesHtml = '';
     if (dev.rssi_per_node) {
       nodesHtml = Object.entries(dev.rssi_per_node)
         .map(([nid, rssi]) => `<div class="node-popup-row"><span class="label">${nid}:</span> ${rssi} dBm</div>`)
         .join('');
     }
 
-    const speed = dev.speed != null
-      ? `${dev.speed.toFixed(1)} m/s`
-      : '—';
+    var speed3d = '\u2014';
+    if (dev.vx != null && dev.vy != null) {
+      var vz = dev.vz || 0;
+      var s = Math.sqrt(dev.vx * dev.vx + dev.vy * dev.vy + vz * vz);
+      speed3d = s.toFixed(1) + ' m/s';
+    } else if (dev.speed != null) {
+      speed3d = dev.speed.toFixed(1) + ' m/s';
+    }
+
+    var zInfo = '';
+    if (dev.z != null) {
+      zInfo = `<div class="node-popup-row"><span class="label">Height:</span> ${dev.z.toFixed(1)} m (${this._floorLabel(dev.z)})</div>`;
+    }
 
     return `
       <div class="device-popup">
@@ -194,9 +218,11 @@ class LiveView {
           <strong>${dev.mac_hash || '???'}</strong>
         </div>
         <div class="node-popup-body">
+          <div class="node-popup-row"><span class="label">Pos:</span> (${(dev.x || 0).toFixed(1)}, ${(dev.y || 0).toFixed(1)}) m</div>
+          ${zInfo}
           <div class="node-popup-row"><span class="label">Vendor:</span> ${dev.vendor || 'Unknown'}</div>
-          <div class="node-popup-row"><span class="label">Signals:</span> ${(dev.signal_types || []).join(', ') || '—'}</div>
-          <div class="node-popup-row"><span class="label">Speed:</span> ${speed}</div>
+          <div class="node-popup-row"><span class="label">Signals:</span> ${(dev.signal_types || []).join(', ') || '\u2014'}</div>
+          <div class="node-popup-row"><span class="label">Speed:</span> ${speed3d}</div>
           <div class="node-popup-row"><span class="label">Last seen:</span> ${lastSeen}</div>
           ${nodesHtml ? '<hr class="popup-divider">' + nodesHtml : ''}
         </div>
@@ -205,7 +231,7 @@ class LiveView {
   }
 
   _removeDevice(id) {
-    const entry = this.devices[id];
+    var entry = this.devices[id];
     if (!entry) return;
     if (entry.marker) this.deviceLayer.removeLayer(entry.marker);
     if (entry.trailLine) this.trailLayer.removeLayer(entry.trailLine);

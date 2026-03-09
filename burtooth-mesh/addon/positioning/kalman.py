@@ -19,10 +19,10 @@ class TrackerState:
 
 
 class KalmanTracker:
-    """Manages per-MAC 2D Kalman filters for trajectory smoothing.
+    """Manages per-MAC 3D Kalman filters for trajectory smoothing.
 
-    State vector: [x, y, vx, vy]
-    Measurement vector: [x, y]
+    State vector: [x, y, z, vx, vy, vz]
+    Measurement vector: [x, y, z]
     """
 
     def __init__(self, max_speed_mps: float = 2.0, process_noise: float = 0.5):
@@ -30,30 +30,28 @@ class KalmanTracker:
         self._max_speed = max_speed_mps
         self._process_noise = process_noise
 
-    def _create_filter(self, x: float, y: float, accuracy_m: float) -> KalmanFilter:
-        kf = KalmanFilter(dim_x=4, dim_z=2)
+    def _create_filter(self, x: float, y: float, z: float, accuracy_m: float) -> KalmanFilter:
+        kf = KalmanFilter(dim_x=6, dim_z=3)
 
-        # State transition (constant velocity model, dt filled in at predict time)
-        kf.F = np.eye(4)
+        kf.F = np.eye(6)
 
-        # Measurement function: we observe [x, y]
-        kf.H = np.array([
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
+        # Measurement function: we observe [x, y, z]
+        kf.H = np.zeros((3, 6))
+        kf.H[0, 0] = 1.0
+        kf.H[1, 1] = 1.0
+        kf.H[2, 2] = 1.0
+
+        kf.x = np.array([x, y, z, 0.0, 0.0, 0.0])
+
+        kf.P = np.diag([
+            accuracy_m ** 2, accuracy_m ** 2, accuracy_m ** 2,
+            4.0, 4.0, 4.0,
         ])
 
-        # Initial state
-        kf.x = np.array([x, y, 0.0, 0.0])
-
-        # Initial covariance: position uncertain by accuracy, velocity very uncertain
-        kf.P = np.diag([accuracy_m ** 2, accuracy_m ** 2, 4.0, 4.0])
-
-        # Measurement noise from accuracy estimate
         r = max(accuracy_m, 0.5) ** 2
-        kf.R = np.diag([r, r])
+        kf.R = np.diag([r, r, r])
 
-        # Process noise (updated per-predict based on dt)
-        kf.Q = np.eye(4) * self._process_noise
+        kf.Q = np.eye(6) * self._process_noise
 
         return kf
 
@@ -64,72 +62,82 @@ class KalmanTracker:
         dt3 = dt2 * dt
         dt4 = dt3 * dt
 
-        kf.Q = q * np.array([
-            [dt4 / 4, 0,       dt3 / 2, 0      ],
-            [0,       dt4 / 4, 0,       dt3 / 2],
-            [dt3 / 2, 0,       dt2,     0      ],
-            [0,       dt3 / 2, 0,       dt2    ],
-        ])
+        # 3-axis PCWN: block-diagonal for (x,vx), (y,vy), (z,vz)
+        Q = np.zeros((6, 6))
+        for ax in range(3):
+            p = ax          # position index
+            v = ax + 3      # velocity index
+            Q[p, p] = q * dt4 / 4
+            Q[p, v] = q * dt3 / 2
+            Q[v, p] = q * dt3 / 2
+            Q[v, v] = q * dt2
+        kf.Q = Q
 
     def update(
         self,
         mac: str,
         x: float,
         y: float,
+        z: float,
         accuracy_m: float,
         timestamp: float,
-    ) -> tuple[float, float, float, float]:
+    ) -> tuple[float, float, float, float, float, float]:
         """Create or update Kalman filter for a MAC address.
 
-        Returns smoothed (x, y, vx, vy).
+        Returns smoothed (x, y, z, vx, vy, vz).
         Rejects measurements that imply unrealistic speed.
         """
         tracker = self._trackers.get(mac)
 
         if tracker is None:
-            kf = self._create_filter(x, y, accuracy_m)
+            kf = self._create_filter(x, y, z, accuracy_m)
             self._trackers[mac] = TrackerState(
                 kf=kf,
                 last_update=timestamp,
                 last_seen=timestamp,
                 initialized=True,
             )
-            return (x, y, 0.0, 0.0)
+            return (x, y, z, 0.0, 0.0, 0.0)
 
         kf = tracker.kf
         dt = max(timestamp - tracker.last_update, 0.001)
 
-        # Predict step
-        kf.F[0, 2] = dt
-        kf.F[1, 3] = dt
+        # Predict step: update state transition with dt
+        kf.F = np.eye(6)
+        kf.F[0, 3] = dt
+        kf.F[1, 4] = dt
+        kf.F[2, 5] = dt
         self._update_process_noise(kf, dt)
         kf.predict()
 
-        # Check if implied speed is realistic before accepting the measurement
-        predicted_x, predicted_y = float(kf.x[0]), float(kf.x[1])
+        predicted_x = float(kf.x[0])
+        predicted_y = float(kf.x[1])
+        predicted_z = float(kf.x[2])
         dx = x - predicted_x
         dy = y - predicted_y
-        implied_speed = math.sqrt(dx * dx + dy * dy) / dt if dt > 0 else 0.0
+        dz = z - predicted_z
+        implied_speed = math.sqrt(dx * dx + dy * dy + dz * dz) / dt if dt > 0 else 0.0
 
         if implied_speed > self._max_speed * 3:
-            # Likely multipath error — use prediction only
             logger.debug(
                 "Rejecting measurement for %s: implied speed %.1f m/s exceeds limit",
                 mac, implied_speed,
             )
         else:
-            # Update measurement noise from current accuracy
             r = max(accuracy_m, 0.5) ** 2
-            kf.R = np.diag([r, r])
-            kf.update(np.array([x, y]))
+            kf.R = np.diag([r, r, r])
+            kf.update(np.array([x, y, z]))
 
         tracker.last_update = timestamp
         tracker.last_seen = timestamp
 
         state = kf.x
-        return (float(state[0]), float(state[1]), float(state[2]), float(state[3]))
+        return (
+            float(state[0]), float(state[1]), float(state[2]),
+            float(state[3]), float(state[4]), float(state[5]),
+        )
 
-    def predict(self, mac: str, timestamp: float) -> Optional[tuple[float, float, float, float]]:
+    def predict(self, mac: str, timestamp: float) -> Optional[tuple[float, float, float, float, float, float]]:
         """Predict position at a given timestamp without a measurement update."""
         tracker = self._trackers.get(mac)
         if tracker is None:
@@ -138,15 +146,20 @@ class KalmanTracker:
         dt = max(timestamp - tracker.last_update, 0.0)
         if dt <= 0:
             state = tracker.kf.x
-            return (float(state[0]), float(state[1]), float(state[2]), float(state[3]))
+            return (
+                float(state[0]), float(state[1]), float(state[2]),
+                float(state[3]), float(state[4]), float(state[5]),
+            )
 
-        # Work on a copy so we don't advance the filter without a real measurement
-        kf = tracker.kf
-        F = kf.F.copy()
-        F[0, 2] = dt
-        F[1, 3] = dt
-        predicted = F @ kf.x
-        return (float(predicted[0]), float(predicted[1]), float(predicted[2]), float(predicted[3]))
+        F = np.eye(6)
+        F[0, 3] = dt
+        F[1, 4] = dt
+        F[2, 5] = dt
+        predicted = F @ tracker.kf.x
+        return (
+            float(predicted[0]), float(predicted[1]), float(predicted[2]),
+            float(predicted[3]), float(predicted[4]), float(predicted[5]),
+        )
 
     def get_state(self, mac: str) -> Optional[dict]:
         tracker = self._trackers.get(mac)
@@ -156,8 +169,10 @@ class KalmanTracker:
         return {
             "x": float(state[0]),
             "y": float(state[1]),
-            "vx": float(state[2]),
-            "vy": float(state[3]),
+            "z": float(state[2]),
+            "vx": float(state[3]),
+            "vy": float(state[4]),
+            "vz": float(state[5]),
             "last_seen": tracker.last_seen,
         }
 

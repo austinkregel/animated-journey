@@ -35,9 +35,10 @@
         inputs[f.id] = select;
       } else {
         var input = document.createElement('input');
-        input.type = 'text';
+        input.type = f.type || 'text';
         input.placeholder = f.placeholder || '';
-        input.value = f.value || '';
+        input.value = f.value != null ? f.value : '';
+        if (f.step) input.step = f.step;
         bodyEl.appendChild(input);
         inputs[f.id] = input;
       }
@@ -78,6 +79,7 @@
   // ---- Map ----
   var map = initMap('map');
   var selectedNodeType = 'perimeter';
+  var gridVisible = false;
 
   // ---- Node Placer ----
   var nodePlacer = new NodePlacer(map, {
@@ -93,8 +95,9 @@
     showModal('Edit Node', [
       { id: 'nodeId', label: 'Node ID', type: 'text', value: node.node_id },
       { id: 'nodeType', label: 'Type', type: 'select', options: typeOptions, value: node.type },
+      { id: 'nodeZ', label: 'Height (m)', type: 'number', value: node.z || 0, step: '0.1' },
     ], function (result) {
-      placer.applyNodeEdit(node, result.nodeId, result.nodeType);
+      placer.applyNodeEdit(node, result.nodeId, result.nodeType, result.nodeZ);
     });
   };
 
@@ -192,12 +195,16 @@
   // ---- Map Click -> Place Node ----
   map.on('click', function (e) {
     if (currentTab !== 'map') return;
-    var latlng = e.latlng;
+    // CRS.Simple: latlng.lat = y, latlng.lng = x
+    var clickX = e.latlng.lng;
+    var clickY = e.latlng.lat;
     showModal('Place Node', [
       { id: 'nodeId', label: 'Node ID', type: 'text', placeholder: 'e.g. front-porch' },
+      { id: 'nodeZ', label: 'Height (m)', type: 'number', placeholder: '0', value: '0', step: '0.1' },
     ], function (result) {
       if (!result.nodeId) return;
-      nodePlacer.addNode(latlng, result.nodeId, selectedNodeType);
+      var z = parseFloat(result.nodeZ) || 0;
+      nodePlacer.addNode({ x: clickX, y: clickY }, result.nodeId, selectedNodeType, { z: z });
     });
   });
 
@@ -222,7 +229,7 @@
         '<div class="node-list-item">' +
           '<span class="node-color-dot" style="background:' + color + '"></span>' +
           '<span class="node-list-name">' + node.node_id + '</span>' +
-          '<span class="node-list-type">' + node.type + '</span>' +
+          '<span class="node-list-type">' + node.type + ' z=' + (node.z || 0).toFixed(1) + 'm</span>' +
         '</div>';
 
       var removeBtn = document.createElement('button');
@@ -236,13 +243,36 @@
     });
   }
 
+  // ---- Floor Plan Dimensions ----
+  document.getElementById('apply-dimensions').addEventListener('click', function () {
+    var w = parseFloat(document.getElementById('area-width').value) || 30;
+    var h = parseFloat(document.getElementById('area-height').value) || 20;
+    map.setDimensions(w, h);
+    map.fitBounds([[0, 0], [h, w]], { padding: [20, 20] });
+    if (gridVisible) {
+      map.showGrid(5);
+    }
+    showToast('Dimensions set: ' + w + 'm \u00D7 ' + h + 'm');
+  });
+
+  document.getElementById('toggle-grid').addEventListener('click', function () {
+    gridVisible = !gridVisible;
+    if (gridVisible) {
+      map.showGrid(5);
+      this.textContent = 'Hide Grid';
+    } else {
+      map.hideGrid();
+      this.textContent = 'Show Grid';
+    }
+  });
+
   // ---- Save Config ----
   document.getElementById('save-config').addEventListener('click', function () {
     var config = {
       nodes: nodePlacer.getNodes(),
-      origin: {
-        lat: map.getCenter().lat,
-        lng: map.getCenter().lng,
+      dimensions: {
+        width: parseFloat(document.getElementById('area-width').value) || 30,
+        height: parseFloat(document.getElementById('area-height').value) || 20,
       },
     };
 
@@ -265,8 +295,13 @@
     fetch(apiUrl('/api/config'))
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (data.origin) {
-          map.setView([data.origin.lat, data.origin.lng], 19);
+        if (data.dimensions) {
+          var w = data.dimensions.width || 30;
+          var h = data.dimensions.height || 20;
+          document.getElementById('area-width').value = w;
+          document.getElementById('area-height').value = h;
+          map.setDimensions(w, h);
+          map.fitBounds([[0, 0], [h, w]], { padding: [20, 20] });
         }
         if (data.nodes) {
           nodePlacer.loadNodes(data.nodes);
@@ -274,6 +309,7 @@
       })
       .catch(function () {
         console.warn('Could not load config');
+        map.fitBounds([[0, 0], [20, 30]], { padding: [20, 20] });
       });
   }
 
@@ -319,7 +355,7 @@
       li.className = 'path-list-item';
       li.dataset.pathId = p.id;
 
-      var startTime = p.start_time ? new Date(p.start_time).toLocaleString() : '--';
+      var startTime = p.start_time ? new Date(p.start_time * 1000).toLocaleString() : '--';
       var dur = p.duration ? formatDuration(p.duration) : '--';
       var dist = p.distance ? (p.distance < 1000 ? p.distance.toFixed(0) + 'm' : (p.distance / 1000).toFixed(1) + 'km') : '--';
 
@@ -434,7 +470,7 @@
       showToast('Place scanner nodes first', 'error');
       return;
     }
-    var waypoints = nodes.map(function (n) { return { lat: n.lat, lng: n.lng, node_id: n.node_id }; });
+    var waypoints = nodes.map(function (n) { return { x: n.x, y: n.y, z: n.z, node_id: n.node_id }; });
     calibrationView.startManualCalibration(waypoints);
     document.getElementById('cal-mark-here').disabled = false;
     document.getElementById('cal-stop-manual').style.display = '';
@@ -736,9 +772,6 @@
         showToast('Overlay image uploaded');
         showOverlayControls();
         updateOverlayPreview();
-        probeOverlayImageSize(function () {
-          calcOverlayBounds();
-        });
       })
       .catch(function (err) {
         statusEl.textContent = 'Upload failed: ' + err.message;
@@ -750,15 +783,19 @@
     overlayHasImage = true;
     overlayUploadZone.classList.add('has-image');
     document.getElementById('overlay-upload-label').textContent = 'Replace image (click or drop)';
-    document.getElementById('overlay-bounds-section').style.display = '';
+    document.getElementById('overlay-controls-section').style.display = '';
     document.getElementById('overlay-preview').style.display = '';
+
+    var d = map._dimensions;
+    document.getElementById('overlay-width-m').value = d.width;
+    document.getElementById('overlay-height-m').value = d.height;
   }
 
   function hideOverlayControls() {
     overlayHasImage = false;
     overlayUploadZone.classList.remove('has-image');
     document.getElementById('overlay-upload-label').textContent = 'Drop image here or click to select';
-    document.getElementById('overlay-bounds-section').style.display = 'none';
+    document.getElementById('overlay-controls-section').style.display = 'none';
     document.getElementById('overlay-preview').style.display = 'none';
   }
 
@@ -768,81 +805,26 @@
     document.getElementById('overlay-preview').style.display = '';
   }
 
-  var overlayImageSize = null;
-
-  function calcOverlayBounds() {
-    var lat = parseFloat(document.getElementById('overlay-center-lat').value);
-    var lng = parseFloat(document.getElementById('overlay-center-lng').value);
-    var zoom = parseInt(document.getElementById('overlay-zoom').value);
-    if (isNaN(lat) || isNaN(lng) || isNaN(zoom)) return;
-    if (!overlayImageSize) return;
-
-    var groundRes = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
-    var widthM = overlayImageSize.w * groundRes;
-    var heightM = overlayImageSize.h * groundRes;
-
-    var latPerM = 1.0 / 111320.0;
-    var lngPerM = 1.0 / (111320.0 * Math.cos(lat * Math.PI / 180));
-
-    var halfLat = (heightM / 2) * latPerM;
-    var halfLng = (widthM / 2) * lngPerM;
-
-    document.getElementById('overlay-north').value = (lat + halfLat).toFixed(8);
-    document.getElementById('overlay-south').value = (lat - halfLat).toFixed(8);
-    document.getElementById('overlay-east').value = (lng + halfLng).toFixed(8);
-    document.getElementById('overlay-west').value = (lng - halfLng).toFixed(8);
-  }
-
-  function probeOverlayImageSize(callback) {
-    var img = new Image();
-    img.onload = function () {
-      overlayImageSize = { w: img.naturalWidth, h: img.naturalHeight };
-      if (callback) callback();
-    };
-    img.src = apiUrl('/api/overlay/image') + '?t=' + Date.now();
-  }
-
-  document.getElementById('overlay-center-lat').addEventListener('input', calcOverlayBounds);
-  document.getElementById('overlay-center-lng').addEventListener('input', calcOverlayBounds);
-  document.getElementById('overlay-zoom').addEventListener('input', calcOverlayBounds);
-
-  document.getElementById('overlay-use-map-center').addEventListener('click', function () {
-    var center = map.getCenter();
-    var zoom = map.getZoom();
-    document.getElementById('overlay-center-lat').value = center.lat.toFixed(8);
-    document.getElementById('overlay-center-lng').value = center.lng.toFixed(8);
-    document.getElementById('overlay-zoom').value = Math.round(zoom);
-    calcOverlayBounds();
-    showToast('Center captured from map');
-  });
-
-  function getOverlayBounds() {
-    var n = parseFloat(document.getElementById('overlay-north').value);
-    var s = parseFloat(document.getElementById('overlay-south').value);
-    var w = parseFloat(document.getElementById('overlay-west').value);
-    var e = parseFloat(document.getElementById('overlay-east').value);
-    if (isNaN(n) || isNaN(s) || isNaN(w) || isNaN(e)) return null;
-    return { north: n, south: s, west: w, east: e };
-  }
-
   document.getElementById('overlay-apply').addEventListener('click', function () {
-    var bounds = getOverlayBounds();
-    if (!bounds) {
-      showToast('Enter center coordinates and zoom first', 'error');
+    var w = parseFloat(document.getElementById('overlay-width-m').value);
+    var h = parseFloat(document.getElementById('overlay-height-m').value);
+    if (!w || !h || isNaN(w) || isNaN(h)) {
+      showToast('Enter width and height in meters', 'error');
       return;
     }
     var opacity = parseInt(document.getElementById('overlay-opacity').value) / 100;
     var rotation = parseFloat(document.getElementById('overlay-rotation').value) || 0;
     var imageUrl = apiUrl('/api/overlay/image') + '?t=' + Date.now();
-    map.setOverlayImage(imageUrl, bounds, { opacity: opacity, rotation: rotation });
+
+    map.setDimensions(w, h);
+    map.setOverlayImage(imageUrl, { width: w, height: h }, { opacity: opacity, rotation: rotation });
+    map.fitToOverlay();
 
     var settings = {
-      overlay_bounds: bounds,
+      overlay_width_m: w,
+      overlay_height_m: h,
       overlay_opacity: parseInt(document.getElementById('overlay-opacity').value),
       overlay_rotation: rotation,
-      overlay_center_lat: parseFloat(document.getElementById('overlay-center-lat').value),
-      overlay_center_lng: parseFloat(document.getElementById('overlay-center-lng').value),
-      overlay_zoom: parseInt(document.getElementById('overlay-zoom').value),
     };
     fetch(apiUrl('/api/settings'), {
       method: 'POST',
@@ -854,7 +836,7 @@
   });
 
   document.getElementById('overlay-fit').addEventListener('click', function () {
-    map.fitOverlay();
+    map.fitToOverlay();
   });
 
   document.getElementById('overlay-remove').addEventListener('click', function () {
@@ -880,74 +862,20 @@
     map.setOverlayRotation(deg);
   });
 
-  function syncBoundsFields() {
-    var b = map._overlayBounds;
-    if (!b) return;
-    document.getElementById('overlay-north').value = b.north.toFixed(8);
-    document.getElementById('overlay-south').value = b.south.toFixed(8);
-    document.getElementById('overlay-east').value = b.east.toFixed(8);
-    document.getElementById('overlay-west').value = b.west.toFixed(8);
-    document.getElementById('overlay-center-lat').value = ((b.north + b.south) / 2).toFixed(8);
-    document.getElementById('overlay-center-lng').value = ((b.east + b.west) / 2).toFixed(8);
-  }
-
-  document.querySelectorAll('.overlay-nudge-btn').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      var dir = btn.dataset.dir;
-      var step = parseFloat(document.getElementById('overlay-nudge-step').value);
-      var dlat = 0, dlng = 0;
-      if (dir === 'n') dlat = step;
-      else if (dir === 's') dlat = -step;
-      else if (dir === 'e') dlng = step;
-      else if (dir === 'w') dlng = -step;
-      map.nudgeOverlay(dlat, dlng);
-      syncBoundsFields();
-    });
-  });
-
-  var overlayScale = 1.0;
-
-  document.getElementById('overlay-scale-up').addEventListener('click', function () {
-    var step = parseFloat(document.getElementById('overlay-scale-step').value);
-    var factor = 1 + step;
-    overlayScale *= factor;
-    map.scaleOverlay(factor);
-    syncBoundsFields();
-    document.getElementById('overlay-scale-label').textContent = (overlayScale * 100).toFixed(1) + '%';
-  });
-
-  document.getElementById('overlay-scale-down').addEventListener('click', function () {
-    var step = parseFloat(document.getElementById('overlay-scale-step').value);
-    var factor = 1 - step;
-    overlayScale *= factor;
-    map.scaleOverlay(factor);
-    syncBoundsFields();
-    document.getElementById('overlay-scale-label').textContent = (overlayScale * 100).toFixed(1) + '%';
-  });
-
   function loadOverlayFromSettings(settings) {
-    if (!settings.overlay_bounds) return;
+    if (!settings.overlay_width_m || !settings.overlay_height_m) return;
 
     var img = new Image();
     img.onload = function () {
-      overlayImageSize = { w: img.naturalWidth, h: img.naturalHeight };
       showOverlayControls();
       updateOverlayPreview();
 
-      if (settings.overlay_center_lat != null)
-        document.getElementById('overlay-center-lat').value = settings.overlay_center_lat;
-      if (settings.overlay_center_lng != null)
-        document.getElementById('overlay-center-lng').value = settings.overlay_center_lng;
-      if (settings.overlay_zoom != null)
-        document.getElementById('overlay-zoom').value = settings.overlay_zoom;
+      var w = settings.overlay_width_m;
+      var h = settings.overlay_height_m;
+      document.getElementById('overlay-width-m').value = w;
+      document.getElementById('overlay-height-m').value = h;
 
-      var b = settings.overlay_bounds;
-      document.getElementById('overlay-north').value = b.north;
-      document.getElementById('overlay-south').value = b.south;
-      document.getElementById('overlay-west').value = b.west;
-      document.getElementById('overlay-east').value = b.east;
-
-      var opacity = settings.overlay_opacity != null ? settings.overlay_opacity : 85;
+      var opacity = settings.overlay_opacity != null ? settings.overlay_opacity : 100;
       document.getElementById('overlay-opacity').value = opacity;
       document.getElementById('overlay-opacity-val').textContent = opacity;
 
@@ -955,7 +883,12 @@
       document.getElementById('overlay-rotation').value = rotation;
       document.getElementById('overlay-rotation-val').textContent = rotation.toFixed(1);
 
-      map.setOverlayImage(apiUrl('/api/overlay/image'), b, { opacity: opacity / 100, rotation: rotation });
+      map.setDimensions(w, h);
+      map.setOverlayImage(
+        apiUrl('/api/overlay/image'),
+        { width: w, height: h },
+        { opacity: opacity / 100, rotation: rotation }
+      );
     };
     img.src = apiUrl('/api/overlay/image') + '?t=' + Date.now();
   }

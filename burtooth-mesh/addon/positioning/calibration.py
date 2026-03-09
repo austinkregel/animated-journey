@@ -177,10 +177,16 @@ class AutoCalibrator:
         device_x: float,
         device_y: float,
         rssi: float,
+        node_z: float = 0.0,
+        device_z: float = 0.0,
     ) -> None:
-        """Add a calibration sample computing distance from known positions."""
+        """Add a calibration sample computing 3D distance from known positions."""
         import math
-        distance = math.sqrt((device_x - node_x) ** 2 + (device_y - node_y) ** 2)
+        distance = math.sqrt(
+            (device_x - node_x) ** 2
+            + (device_y - node_y) ** 2
+            + (device_z - node_z) ** 2
+        )
         self.add_sample(node_id, distance, rssi)
 
     def fit_model(self, node_id: str) -> Optional[dict]:

@@ -1,45 +1,43 @@
 function initMap(containerId) {
   var map = L.map(containerId, {
+    crs: L.CRS.Simple,
     center: [0, 0],
-    zoom: 3,
-    maxZoom: 24,
+    zoom: 1,
+    minZoom: -3,
+    maxZoom: 8,
   });
-
-  L.tileLayer(
-    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    {
-      attribution:
-        "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics",
-      maxNativeZoom: 20,
-      maxZoom: 24,
-    }
-  ).addTo(map);
 
   map._overlayLayer = null;
   map._overlayBounds = null;
   map._overlayRotation = 0;
+  map._gridLayer = null;
+  map._dimensions = { width: 30, height: 20 };
 
-  map.setOverlayImage = function (imageUrl, bounds, options) {
+  map.setDimensions = function (widthM, heightM) {
+    map._dimensions = { width: widthM, height: heightM };
+  };
+
+  map.setOverlayImage = function (imageUrl, dimensions, options) {
     if (map._overlayLayer) {
       map.removeLayer(map._overlayLayer);
       map._overlayLayer = null;
     }
-    if (!imageUrl || !bounds) return null;
+    if (!imageUrl) return null;
 
-    var leafletBounds = L.latLngBounds(
-      [bounds.south, bounds.west],
-      [bounds.north, bounds.east]
-    );
-    map._overlayBounds = bounds;
+    var w = (dimensions && dimensions.width) || map._dimensions.width;
+    var h = (dimensions && dimensions.height) || map._dimensions.height;
+    map._dimensions = { width: w, height: h };
+
+    var bounds = [[0, 0], [h, w]];
+    map._overlayBounds = { width: w, height: h };
     map._overlayRotation = (options && options.rotation != null) ? options.rotation : 0;
 
     var opts = {
-      opacity: (options && options.opacity != null) ? options.opacity : 0.85,
+      opacity: (options && options.opacity != null) ? options.opacity : 1.0,
       interactive: false,
-      zIndex: 500,
     };
 
-    map._overlayLayer = L.imageOverlay(imageUrl, leafletBounds, opts).addTo(map);
+    map._overlayLayer = L.imageOverlay(imageUrl, bounds, opts).addTo(map);
 
     if (map._overlayRotation !== 0) {
       _applyOverlayRotation(map);
@@ -48,43 +46,25 @@ function initMap(containerId) {
     return map._overlayLayer;
   };
 
+  map.fitToOverlay = function () {
+    if (map._overlayLayer) {
+      map.fitBounds(map._overlayLayer.getBounds(), { padding: [20, 20] });
+    } else {
+      var d = map._dimensions;
+      map.fitBounds([[0, 0], [d.height, d.width]], { padding: [20, 20] });
+    }
+  };
+
   map.setOverlayRotation = function (degrees) {
     map._overlayRotation = degrees;
     _applyOverlayRotation(map);
   };
 
-  map.nudgeOverlay = function (dlat, dlng) {
-    if (!map._overlayBounds || !map._overlayLayer) return;
-    var b = map._overlayBounds;
-    b.north += dlat;
-    b.south += dlat;
-    b.east += dlng;
-    b.west += dlng;
-    _refreshOverlayBounds(map);
-  };
-
-  map.scaleOverlay = function (factor) {
-    if (!map._overlayBounds || !map._overlayLayer) return;
-    var b = map._overlayBounds;
-    var centerLat = (b.north + b.south) / 2;
-    var centerLng = (b.east + b.west) / 2;
-    var halfLat = (b.north - b.south) / 2;
-    var halfLng = (b.east - b.west) / 2;
-    b.north = centerLat + halfLat * factor;
-    b.south = centerLat - halfLat * factor;
-    b.east = centerLng + halfLng * factor;
-    b.west = centerLng - halfLng * factor;
-    _refreshOverlayBounds(map);
-  };
-
-  function _refreshOverlayBounds(m) {
-    var b = m._overlayBounds;
-    var leafletBounds = L.latLngBounds([b.south, b.west], [b.north, b.east]);
-    m._overlayLayer.setBounds(leafletBounds);
-    if (m._overlayRotation !== 0) {
-      _applyOverlayRotation(m);
+  map.setOverlayOpacity = function (opacity) {
+    if (map._overlayLayer) {
+      map._overlayLayer.setOpacity(opacity);
     }
-  }
+  };
 
   map.removeOverlayImage = function () {
     if (map._overlayLayer) {
@@ -95,15 +75,30 @@ function initMap(containerId) {
     }
   };
 
-  map.setOverlayOpacity = function (opacity) {
-    if (map._overlayLayer) {
-      map._overlayLayer.setOpacity(opacity);
+  map.showGrid = function (spacingM) {
+    spacingM = spacingM || 5;
+    if (map._gridLayer) {
+      map.removeLayer(map._gridLayer);
     }
+    map._gridLayer = L.layerGroup();
+
+    var d = map._dimensions;
+    var gridStyle = { color: '#ffffff', weight: 0.5, opacity: 0.15 };
+
+    for (var x = 0; x <= d.width; x += spacingM) {
+      L.polyline([[0, x], [d.height, x]], gridStyle).addTo(map._gridLayer);
+    }
+    for (var y = 0; y <= d.height; y += spacingM) {
+      L.polyline([[y, 0], [y, d.width]], gridStyle).addTo(map._gridLayer);
+    }
+
+    map._gridLayer.addTo(map);
   };
 
-  map.fitOverlay = function () {
-    if (map._overlayLayer) {
-      map.fitBounds(map._overlayLayer.getBounds(), { padding: [20, 20] });
+  map.hideGrid = function () {
+    if (map._gridLayer) {
+      map.removeLayer(map._gridLayer);
+      map._gridLayer = null;
     }
   };
 

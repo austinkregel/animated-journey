@@ -62,7 +62,8 @@ class CalibrationView {
         iconAnchor: [14, 14],
       });
 
-      const marker = L.marker([wp.lat, wp.lng], { icon: icon, interactive: false })
+      // CRS.Simple: latLng(y, x)
+      const marker = L.marker([wp.y, wp.x], { icon: icon, interactive: false })
         .addTo(this.waypointLayer);
 
       this.waypointMarkers.push({ marker, wp, completed: false });
@@ -85,8 +86,10 @@ class CalibrationView {
 
     const result = {
       waypoint_index: this.currentWaypointIndex,
-      lat: entry.wp.lat,
-      lng: entry.wp.lng,
+      x: entry.wp.x,
+      y: entry.wp.y,
+      z: entry.wp.z || 0,
+      node_id: entry.wp.node_id,
       timestamp: new Date().toISOString(),
     };
 

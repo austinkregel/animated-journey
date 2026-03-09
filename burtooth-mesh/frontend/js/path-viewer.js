@@ -22,13 +22,13 @@ class PathViewer {
     return fetch(this.apiBase + '/api/paths')
       .then((r) => r.json())
       .then((data) => {
-        this.paths = (data.paths || []).map((p) => ({
-          id: p.id,
+        this.paths = (data.paths || data || []).map((p) => ({
+          id: p.id || p.path_id,
           mac_hash: p.mac_hash,
           start_time: p.start_time,
           end_time: p.end_time,
-          duration: p.duration || this._calcDuration(p.start_time, p.end_time),
-          distance: p.distance || 0,
+          duration: p.duration || p.duration_s || this._calcDuration(p.start_time, p.end_time),
+          distance: p.distance || p.distance_m || 0,
           points: p.points || [],
         }));
         this.onPathsLoaded(this.paths);
@@ -45,18 +45,23 @@ class PathViewer {
     return (new Date(end) - new Date(start)) / 1000;
   }
 
+  _toLatLng(point) {
+    // CRS.Simple: latLng(y, x)
+    return [point.y, point.x];
+  }
+
   selectPath(pathId) {
     this.stop();
     this.clear();
 
-    const path = this.paths.find((p) => p.id === pathId);
+    var path = this.paths.find((p) => p.id === pathId);
     if (!path || !path.points.length) return;
 
     this.selectedPath = path;
     this.playIndex = 0;
 
-    const coords = path.points.map((p) => [p.lat, p.lng]);
-    const segments = this._buildColoredSegments(path.points);
+    var coords = path.points.map((p) => this._toLatLng(p));
+    var segments = this._buildColoredSegments(path.points);
 
     segments.forEach((seg) => {
       L.polyline(seg.coords, {
@@ -83,12 +88,16 @@ class PathViewer {
   }
 
   _buildColoredSegments(points) {
-    const segments = [];
-    for (let i = 0; i < points.length - 1; i++) {
-      const speed = points[i].speed || 0;
-      const color = this._speedColor(speed);
+    var segments = [];
+    for (var i = 0; i < points.length - 1; i++) {
+      var speed = points[i].speed || 0;
+      if (!speed && points[i].vx != null && points[i].vy != null) {
+        var vz = points[i].vz || 0;
+        speed = Math.sqrt(points[i].vx * points[i].vx + points[i].vy * points[i].vy + vz * vz);
+      }
+      var color = this._speedColor(speed);
       segments.push({
-        coords: [[points[i].lat, points[i].lng], [points[i + 1].lat, points[i + 1].lng]],
+        coords: [this._toLatLng(points[i]), this._toLatLng(points[i + 1])],
         color: color,
       });
     }
@@ -102,18 +111,18 @@ class PathViewer {
   }
 
   _addTimestampLabels(points) {
-    const step = Math.max(1, Math.floor(points.length / 8));
-    for (let i = 0; i < points.length; i += step) {
-      const p = points[i];
+    var step = Math.max(1, Math.floor(points.length / 8));
+    for (var i = 0; i < points.length; i += step) {
+      var p = points[i];
       if (!p.timestamp) continue;
-      const time = new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const icon = L.divIcon({
+      var time = new Date(p.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      var icon = L.divIcon({
         className: 'path-timestamp-label',
         html: `<span>${time}</span>`,
         iconSize: [60, 20],
         iconAnchor: [30, -8],
       });
-      const m = L.marker([p.lat, p.lng], { icon: icon, interactive: false });
+      var m = L.marker(this._toLatLng(p), { icon: icon, interactive: false });
       m.addTo(this.pathLayer);
       this.timestampMarkers.push(m);
     }
@@ -137,9 +146,9 @@ class PathViewer {
     this.pause();
     this.playIndex = 0;
     if (this.selectedPath && this.animMarker) {
-      const pts = this.selectedPath.points;
+      var pts = this.selectedPath.points;
       if (pts.length) {
-        this.animMarker.setLatLng([pts[0].lat, pts[0].lng]);
+        this.animMarker.setLatLng(this._toLatLng(pts[0]));
       }
     }
     this.onPlaybackUpdate({ playing: false, index: 0, total: this.selectedPath?.points?.length || 0 });
@@ -151,11 +160,10 @@ class PathViewer {
 
   seekTo(index) {
     if (!this.selectedPath) return;
-    const pts = this.selectedPath.points;
+    var pts = this.selectedPath.points;
     this.playIndex = Math.max(0, Math.min(index, pts.length - 1));
     if (this.animMarker) {
-      const p = pts[this.playIndex];
-      this.animMarker.setLatLng([p.lat, p.lng]);
+      this.animMarker.setLatLng(this._toLatLng(pts[this.playIndex]));
     }
     this.onPlaybackUpdate({
       playing: this.playing,
@@ -166,7 +174,7 @@ class PathViewer {
 
   _animate() {
     if (!this.playing || !this.selectedPath) return;
-    const pts = this.selectedPath.points;
+    var pts = this.selectedPath.points;
 
     if (this.playIndex >= pts.length - 1) {
       this.playing = false;
@@ -175,15 +183,26 @@ class PathViewer {
     }
 
     this.playIndex++;
-    const p = pts[this.playIndex];
-    this.animMarker.setLatLng([p.lat, p.lng]);
+    var p = pts[this.playIndex];
+    this.animMarker.setLatLng(this._toLatLng(p));
 
-    const speed = p.speed || 0;
-    const time = p.timestamp ? new Date(p.timestamp).toLocaleTimeString() : '';
+    var speed = 0;
+    if (p.vx != null && p.vy != null) {
+      var vz = p.vz || 0;
+      speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy + vz * vz);
+    } else if (p.speed != null) {
+      speed = p.speed;
+    }
+
+    var time = p.timestamp ? new Date(p.timestamp * 1000).toLocaleTimeString() : '';
+    var zInfo = p.z != null ? `<div class="node-popup-row"><span class="label">Height:</span> ${p.z.toFixed(1)} m</div>` : '';
+
     this.animMarker.setPopupContent(`
       <div class="device-popup">
         <div class="node-popup-body">
           <div class="node-popup-row"><span class="label">Time:</span> ${time}</div>
+          <div class="node-popup-row"><span class="label">Pos:</span> (${(p.x || 0).toFixed(1)}, ${(p.y || 0).toFixed(1)}) m</div>
+          ${zInfo}
           <div class="node-popup-row"><span class="label">Speed:</span> ${speed.toFixed(1)} m/s</div>
           <div class="node-popup-row"><span class="label">Point:</span> ${this.playIndex + 1}/${pts.length}</div>
         </div>
@@ -198,8 +217,8 @@ class PathViewer {
       speed: speed,
     });
 
-    const baseDelay = 100;
-    const delay = baseDelay / this.playSpeed;
+    var baseDelay = 100;
+    var delay = baseDelay / this.playSpeed;
 
     this.playTimer = setTimeout(() => {
       requestAnimationFrame(() => this._animate());

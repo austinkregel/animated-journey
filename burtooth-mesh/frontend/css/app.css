@@ -24,6 +24,11 @@ html, body {
 #map {
   flex: 1;
   min-width: 0;
+  background: #111118;
+}
+
+.leaflet-container {
+  background: #111118;
 }
 
 #sidebar {

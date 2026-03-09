@@ -208,8 +208,9 @@ async def handle_get_nodes(request: web.Request) -> web.Response:
         nodes.append({
             "node_id": nid,
             "type": n.get("type", "unknown"),
-            "lat": n.get("lat"),
-            "lng": n.get("lng"),
+            "x": n.get("x"),
+            "y": n.get("y"),
+            "z": n.get("z", 0),
             "online": status.get("online", False),
             "firmware_version": status.get("firmware_version", ""),
             "ip": status.get("ip", ""),

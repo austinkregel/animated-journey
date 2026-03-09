@@ -5,12 +5,12 @@ substitutions:
 mqtt:
   broker: ${mqtt_broker}
   port: 1883
-  topic_prefix: "${mqtt_topic_prefix}/esphome/${device_name}"
+  topic_prefix: "${mqtt_topic_prefix}/nodes/${device_name}"
 
 esp32_ble_tracker:
   scan_parameters:
-    interval: 100ms
-    window: 100ms
+    interval: 200ms
+    window: 160ms
     active: false
 
   on_ble_advertise:
@@ -19,7 +19,7 @@ esp32_ble_tracker:
             topic: "${mqtt_topic_prefix}/scan/ble/adv/${device_name}"
             payload: |-
               root["node_id"] = "${device_name}";
-              root["ts"] = id(sntp_time).now().timestamp;
+              root["timestamp"] = id(sntp_time).now().timestamp;
               root["mac"] = x.address_str();
               root["rssi"] = x.get_rssi();
               root["type"] = "ble_adv";

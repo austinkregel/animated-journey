@@ -20,7 +20,7 @@ publishing scan data to the Burtooth Mesh MQTT topics.
 ## How It Works
 
 The `ble-proxy-base.yaml` package adds:
-- `esp32_ble_tracker` in passive scan mode (100ms interval/window)
+- `esp32_ble_tracker` in passive scan mode (200ms interval, 160ms window)
 - MQTT publishing of BLE advertisements to `burtooth/scan/ble/adv/{device_name}`
 - SNTP time sync for accurate timestamps
 
