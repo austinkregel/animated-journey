@@ -24,8 +24,8 @@ class MQTTClient:
             logger.info("MQTT connected")
             self.connected = True
             self._reconnect_delay = 1
-            client.subscribe("burtooth/scan/#")
-            client.subscribe("burtooth/nodes/#")
+            client.subscribe("animated-journey/scan/#")
+            client.subscribe("animated-journey/nodes/#")
         else:
             logger.error("MQTT connection failed with code %d", rc)
 
@@ -103,16 +103,16 @@ class MQTTClient:
     async def publish_discovery(self, node_id: str, model: str, sensors: list[dict]):
         for sensor in sensors:
             sensor_id = sensor["id"]
-            config_topic = f"homeassistant/sensor/burtooth_{node_id}/{sensor_id}/config"
+            config_topic = f"homeassistant/sensor/animated-journey_{node_id}/{sensor_id}/config"
             config_payload = {
-                "name": f"Burtooth {node_id} {sensor['name']}",
-                "unique_id": f"burtooth_{node_id}_{sensor_id}",
-                "state_topic": f"burtooth/nodes/{node_id}/{sensor_id}",
+                "name": f"animated-journey {node_id} {sensor['name']}",
+                "unique_id": f"animated-journey_{node_id}_{sensor_id}",
+                "state_topic": f"animated-journey/nodes/{node_id}/{sensor_id}",
                 "device": {
-                    "identifiers": [f"burtooth_{node_id}"],
-                    "name": f"Burtooth {node_id}",
+                    "identifiers": [f"animated-journey_{node_id}"],
+                    "name": f"animated-journey {node_id}",
                     "model": model,
-                    "manufacturer": "Burtooth Mesh",
+                    "manufacturer": "animated-journey Mesh",
                 },
             }
             if "unit" in sensor:

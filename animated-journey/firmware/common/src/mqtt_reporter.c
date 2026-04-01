@@ -213,15 +213,15 @@ void mqtt_reporter_publish_discovery(const char *node_id, const char *model)
 
     /* Sensor: WiFi probe count */
     snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/burtooth_%s_probes/config", node_id);
+             "homeassistant/sensor/animated-journey_%s_probes/config", node_id);
     snprintf(payload, sizeof(payload),
-             "{\"name\":\"Burtooth %s Probes\","
+             "{\"name\":\"animated-journey %s Probes\","
              "\"state_topic\":\"%s/nodes/%s/status\","
              "\"value_template\":\"{{ value_json.probes }}\","
-             "\"unique_id\":\"burtooth_%s_probes\","
-             "\"device\":{\"identifiers\":[\"burtooth_%s\"],"
-             "\"name\":\"Burtooth %s\",\"model\":\"%s\","
-             "\"manufacturer\":\"Burtooth\"}}",
+             "\"unique_id\":\"animated-journey_%s_probes\","
+             "\"device\":{\"identifiers\":[\"animated-journey_%s\"],"
+             "\"name\":\"animated-journey %s\",\"model\":\"%s\","
+             "\"manufacturer\":\"animated-journey\"}}",
              node_id, DEFAULT_MQTT_TOPIC_PREFIX, node_id,
              node_id, node_id, node_id, model);
 
@@ -233,15 +233,15 @@ void mqtt_reporter_publish_discovery(const char *node_id, const char *model)
 
     /* Sensor: BLE adv count */
     snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/burtooth_%s_ble/config", node_id);
+             "homeassistant/sensor/animated-journey_%s_ble/config", node_id);
     snprintf(payload, sizeof(payload),
-             "{\"name\":\"Burtooth %s BLE\","
+             "{\"name\":\"animated-journey %s BLE\","
              "\"state_topic\":\"%s/nodes/%s/status\","
              "\"value_template\":\"{{ value_json.ble }}\","
-             "\"unique_id\":\"burtooth_%s_ble\","
-             "\"device\":{\"identifiers\":[\"burtooth_%s\"],"
-             "\"name\":\"Burtooth %s\",\"model\":\"%s\","
-             "\"manufacturer\":\"Burtooth\"}}",
+             "\"unique_id\":\"animated-journey_%s_ble\","
+             "\"device\":{\"identifiers\":[\"animated-journey_%s\"],"
+             "\"name\":\"animated-journey %s\",\"model\":\"%s\","
+             "\"manufacturer\":\"animated-journey\"}}",
              node_id, DEFAULT_MQTT_TOPIC_PREFIX, node_id,
              node_id, node_id, node_id, model);
 
@@ -253,16 +253,16 @@ void mqtt_reporter_publish_discovery(const char *node_id, const char *model)
 
     /* Sensor: uptime */
     snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/burtooth_%s_uptime/config", node_id);
+             "homeassistant/sensor/animated-journey_%s_uptime/config", node_id);
     snprintf(payload, sizeof(payload),
-             "{\"name\":\"Burtooth %s Uptime\","
+             "{\"name\":\"animated-journey %s Uptime\","
              "\"state_topic\":\"%s/nodes/%s/status\","
              "\"value_template\":\"{{ value_json.uptime }}\","
              "\"unit_of_measurement\":\"s\","
-             "\"unique_id\":\"burtooth_%s_uptime\","
-             "\"device\":{\"identifiers\":[\"burtooth_%s\"],"
-             "\"name\":\"Burtooth %s\",\"model\":\"%s\","
-             "\"manufacturer\":\"Burtooth\"}}",
+             "\"unique_id\":\"animated-journey_%s_uptime\","
+             "\"device\":{\"identifiers\":[\"animated-journey_%s\"],"
+             "\"name\":\"animated-journey %s\",\"model\":\"%s\","
+             "\"manufacturer\":\"animated-journey\"}}",
              node_id, DEFAULT_MQTT_TOPIC_PREFIX, node_id,
              node_id, node_id, node_id, model);
 
@@ -274,16 +274,16 @@ void mqtt_reporter_publish_discovery(const char *node_id, const char *model)
 
     /* Sensor: free heap */
     snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/burtooth_%s_heap/config", node_id);
+             "homeassistant/sensor/animated-journey_%s_heap/config", node_id);
     snprintf(payload, sizeof(payload),
-             "{\"name\":\"Burtooth %s Free Heap\","
+             "{\"name\":\"animated-journey %s Free Heap\","
              "\"state_topic\":\"%s/nodes/%s/status\","
              "\"value_template\":\"{{ value_json.free_heap }}\","
              "\"unit_of_measurement\":\"B\","
-             "\"unique_id\":\"burtooth_%s_heap\","
-             "\"device\":{\"identifiers\":[\"burtooth_%s\"],"
-             "\"name\":\"Burtooth %s\",\"model\":\"%s\","
-             "\"manufacturer\":\"Burtooth\"}}",
+             "\"unique_id\":\"animated-journey_%s_heap\","
+             "\"device\":{\"identifiers\":[\"animated-journey_%s\"],"
+             "\"name\":\"animated-journey %s\",\"model\":\"%s\","
+             "\"manufacturer\":\"animated-journey\"}}",
              node_id, DEFAULT_MQTT_TOPIC_PREFIX, node_id,
              node_id, node_id, node_id, model);
 

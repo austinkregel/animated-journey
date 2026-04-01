@@ -52,7 +52,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => exists r.mac)\n  |> aggregateWindow(every: 5m, fn: (tables=<-) => tables |> distinct(column: \"mac\") |> count(), createEmpty: false)",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => exists r.mac)\n  |> aggregateWindow(every: 5m, fn: (tables=<-) => tables |> distinct(column: \"mac\") |> count(), createEmpty: false)",
           "refId": "A"
         }
       ],
@@ -78,7 +78,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => exists r.category)\n  |> group(columns: [\"category\"])\n  |> count()\n  |> group()",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => exists r.category)\n  |> group(columns: [\"category\"])\n  |> count()\n  |> group()",
           "refId": "A"
         }
       ],
@@ -115,7 +115,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => exists r[\"mac\"])\n  |> group(columns: [\"mac\", \"vendor\"])\n  |> count()\n  |> rename(columns: {_value: \"total_appearances\"})\n  |> sort(columns: [\"total_appearances\"], desc: true)\n  |> limit(n: 20)",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => exists r[\"mac\"])\n  |> group(columns: [\"mac\", \"vendor\"])\n  |> count()\n  |> rename(columns: {_value: \"total_appearances\"})\n  |> sort(columns: [\"total_appearances\"], desc: true)\n  |> limit(n: 20)",
           "refId": "A"
         }
       ],
@@ -160,7 +160,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "import \"date\"\n\nfrom(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => exists r.mac)\n  |> group(columns: [\"mac\"])\n  |> first()\n  |> map(fn: (r) => ({ r with _time: date.truncate(t: r._time, unit: 1d) }))\n  |> group()\n  |> count()",
+          "query": "import \"date\"\n\nfrom(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => exists r.mac)\n  |> group(columns: [\"mac\"])\n  |> first()\n  |> map(fn: (r) => ({ r with _time: date.truncate(t: r._time, unit: 1d) }))\n  |> group()\n  |> count()",
           "refId": "A"
         }
       ],
@@ -202,7 +202,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device_visit\")\n  |> filter(fn: (r) => r._field == \"duration\")\n  |> mean()",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"device_visit\")\n  |> filter(fn: (r) => r._field == \"duration\")\n  |> mean()",
           "refId": "A"
         }
       ],
@@ -234,7 +234,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "import \"date\"\n\nfrom(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => exists r[\"mac\"])\n  |> map(fn: (r) => ({ r with hour: date.hour(t: r._time), day: date.weekDay(t: r._time) }))\n  |> group(columns: [\"hour\", \"day\"])\n  |> count()",
+          "query": "import \"date\"\n\nfrom(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => exists r[\"mac\"])\n  |> map(fn: (r) => ({ r with hour: date.hour(t: r._time), day: date.weekDay(t: r._time) }))\n  |> group(columns: [\"hour\", \"day\"])\n  |> count()",
           "refId": "A"
         }
       ],
@@ -245,7 +245,7 @@
   "refresh": "30s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["burtooth", "device", "timeline"],
+  "tags": ["animated-journey", "device", "timeline"],
   "templating": { "list": [] },
   "time": { "from": "now-24h", "to": "now" },
   "timepicker": {
@@ -254,7 +254,7 @@
   },
   "timezone": "",
   "title": "Device Timeline",
-  "uid": "burtooth-device-timeline",
+  "uid": "animated-journey-device-timeline",
   "version": 1,
   "weekStart": ""
 }

@@ -1,7 +1,7 @@
 # ESPHome BLE Proxy Configs
 
 These configs add BLE advertisement scanning to existing ESPHome devices,
-publishing scan data to the Burtooth Mesh MQTT topics.
+publishing scan data to the animated-journey Mesh MQTT topics.
 
 ## Setup
 
@@ -21,8 +21,8 @@ publishing scan data to the Burtooth Mesh MQTT topics.
 
 The `ble-proxy-base.yaml` package adds:
 - `esp32_ble_tracker` in passive scan mode (200ms interval, 160ms window)
-- MQTT publishing of BLE advertisements to `burtooth/scan/ble/adv/{device_name}`
+- MQTT publishing of BLE advertisements to `animated-journey/scan/ble/adv/{device_name}`
 - SNTP time sync for accurate timestamps
 
-The JSON payload matches the Burtooth Mesh scan format so the positioning
+The JSON payload matches the animated-journey Mesh scan format so the positioning
 engine processes these just like native scanner nodes.

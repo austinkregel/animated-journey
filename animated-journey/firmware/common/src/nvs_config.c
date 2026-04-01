@@ -6,7 +6,7 @@
 #include "nvs_config.h"
 
 static const char *TAG = "nvs_config";
-static const char *NVS_NAMESPACE = "burtooth";
+static const char *NVS_NAMESPACE = "animated-journey";
 
 esp_err_t nvs_config_init(void)
 {

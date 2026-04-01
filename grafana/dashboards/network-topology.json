@@ -37,7 +37,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_beacon\")\n  |> filter(fn: (r) => r._field == \"rssi\")\n  |> group(columns: [\"ssid\", \"bssid\", \"channel\", \"encryption\"])\n  |> mean()\n  |> sort(columns: [\"_value\"], desc: false)",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_beacon\")\n  |> filter(fn: (r) => r._field == \"rssi\")\n  |> group(columns: [\"ssid\", \"bssid\", \"channel\", \"encryption\"])\n  |> mean()\n  |> sort(columns: [\"_value\"], desc: false)",
           "refId": "A"
         }
       ],
@@ -74,7 +74,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ieee802154\")\n  |> group(columns: [\"pan_id\", \"channel\"])\n  |> count()\n  |> last()",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ieee802154\")\n  |> group(columns: [\"pan_id\", \"channel\"])\n  |> count()\n  |> last()",
           "refId": "A"
         }
       ],
@@ -124,7 +124,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"lora\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"lora\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)",
           "refId": "A"
         }
       ],
@@ -150,7 +150,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => exists r.vendor)\n  |> group(columns: [\"vendor\"])\n  |> count()\n  |> group()",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => exists r.vendor)\n  |> group(columns: [\"vendor\"])\n  |> count()\n  |> group()",
           "refId": "A"
         }
       ],
@@ -200,27 +200,27 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"WiFi Probe\" }))",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"WiFi Probe\" }))",
           "refId": "A"
         },
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_beacon\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"WiFi Beacon\" }))",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_beacon\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"WiFi Beacon\" }))",
           "refId": "B"
         },
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ble_adv\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"BLE\" }))",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ble_adv\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"BLE\" }))",
           "refId": "C"
         },
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ieee802154\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"802.15.4\" }))",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ieee802154\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"802.15.4\" }))",
           "refId": "D"
         },
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"lora\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"LoRa\" }))",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"lora\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"LoRa\" }))",
           "refId": "E"
         }
       ],
@@ -231,7 +231,7 @@
   "refresh": "1m",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["burtooth", "network", "topology"],
+  "tags": ["animated-journey", "network", "topology"],
   "templating": { "list": [] },
   "time": { "from": "now-12h", "to": "now" },
   "timepicker": {
@@ -240,7 +240,7 @@
   },
   "timezone": "",
   "title": "Network Topology",
-  "uid": "burtooth-network-topology",
+  "uid": "animated-journey-network-topology",
   "version": 1,
   "weekStart": ""
 }

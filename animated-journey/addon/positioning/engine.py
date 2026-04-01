@@ -23,7 +23,7 @@ STABILITY_ANALYSIS_INTERVAL_S = 3600
 class PositioningEngine:
     """Central positioning coordinator.
 
-    Subscribes to burtooth/scan/# MQTT topics, groups observations by MAC
+    Subscribes to animated-journey/scan/# MQTT topics, groups observations by MAC
     within time windows, runs the 3D trilateration + Kalman pipeline, and
     publishes results.
 
@@ -99,7 +99,7 @@ class PositioningEngine:
         self._mqtt = mqtt_client
         self._running = True
 
-        mqtt_client.register_handler("burtooth/scan/#", self._handle_scan)
+        mqtt_client.register_handler("animated-journey/scan/#", self._handle_scan)
 
         await self._anchor_manager.load()
         if self._ha_api and not self._relative_mode:
@@ -275,7 +275,7 @@ class PositioningEngine:
             payload["lat"] = round(lat, 7)
             payload["lng"] = round(lng, 7)
 
-        topic = f"burtooth/position/{mac_hash}"
+        topic = f"animated-journey/position/{mac_hash}"
         await self._mqtt.publish(topic, payload)
 
     async def _maintenance_loop(self) -> None:
@@ -371,6 +371,6 @@ class PositioningEngine:
 
 
 def _node_id_from_topic(topic: str) -> Optional[str]:
-    """Extract node_id from topic like burtooth/scan/{node_id}."""
+    """Extract node_id from topic like animated-journey/scan/{node_id}."""
     parts = topic.split("/")
     return parts[2] if len(parts) >= 3 else None

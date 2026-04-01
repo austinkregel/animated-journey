@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Burtooth Mesh - Home Assistant Discovery Script
+animated-journey Mesh - Home Assistant Discovery Script
  
 This script queries your HA instance (read-only GET requests only) and saves
 the results to local JSON files for review. No data is sent anywhere.

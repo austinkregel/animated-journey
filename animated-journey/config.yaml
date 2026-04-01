@@ -1,7 +1,7 @@
-name: Burtooth Mesh
+name: animated-journey Mesh
 description: Passive RF scanning mesh for neighborhood device mapping
 version: "0.4.1"
-slug: burtooth-mesh
+slug: animated-journey-mesh
 url: https://github.com/austinkregel/animated-journey
 arch:
   - aarch64
@@ -21,7 +21,7 @@ auth_api: true
 services:
   - mqtt:want
 options:
-  mqtt_topic_prefix: burtooth
+  mqtt_topic_prefix: animated-journey
   scan_interval_ms: 2000
   position_update_ms: 1000
 schema:

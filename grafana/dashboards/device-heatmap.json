@@ -37,7 +37,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"node_status\")\n  |> last()",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"node_status\")\n  |> last()",
           "refId": "A"
         }
       ],
@@ -87,7 +87,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => r._field == \"rssi\")\n  |> filter(fn: (r) => exists r.node_id)",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"ble_adv\")\n  |> filter(fn: (r) => r._field == \"rssi\")\n  |> filter(fn: (r) => exists r.node_id)",
           "refId": "A"
         }
       ],
@@ -129,7 +129,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"wifi_beacon\")\n  |> filter(fn: (r) => exists r.channel)\n  |> group(columns: [\"channel\", \"_measurement\"])\n  |> count()\n  |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\" or r._measurement == \"wifi_beacon\")\n  |> filter(fn: (r) => exists r.channel)\n  |> group(columns: [\"channel\", \"_measurement\"])\n  |> count()\n  |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)",
           "refId": "A"
         }
       ],
@@ -179,12 +179,12 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)",
           "refId": "A"
         },
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ble_adv\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ble_adv\")\n  |> aggregateWindow(every: 5m, fn: count, createEmpty: false)",
           "refId": "B"
         }
       ],
@@ -213,7 +213,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\")\n  |> filter(fn: (r) => exists r.ssid and r.ssid != \"\")\n  |> group(columns: [\"ssid\"])\n  |> count()\n  |> sort(columns: [\"_value\"], desc: true)\n  |> limit(n: 20)",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_probe\")\n  |> filter(fn: (r) => exists r.ssid and r.ssid != \"\")\n  |> group(columns: [\"ssid\"])\n  |> count()\n  |> sort(columns: [\"_value\"], desc: true)\n  |> limit(n: 20)",
           "refId": "A"
         }
       ],
@@ -263,7 +263,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: \"burtooth\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"node_status\")\n  |> filter(fn: (r) => r._field == \"wifi_rssi\")\n  |> aggregateWindow(every: 5m, fn: mean, createEmpty: false)",
+          "query": "from(bucket: \"animated-journey\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"node_status\")\n  |> filter(fn: (r) => r._field == \"wifi_rssi\")\n  |> aggregateWindow(every: 5m, fn: mean, createEmpty: false)",
           "refId": "A"
         }
       ],
@@ -274,7 +274,7 @@
   "refresh": "30s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["burtooth", "device", "heatmap", "signal"],
+  "tags": ["animated-journey", "device", "heatmap", "signal"],
   "templating": { "list": [] },
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {
@@ -283,7 +283,7 @@
   },
   "timezone": "",
   "title": "Device Heatmap",
-  "uid": "burtooth-device-heatmap",
+  "uid": "animated-journey-device-heatmap",
   "version": 1,
   "weekStart": ""
 }

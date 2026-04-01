@@ -2,7 +2,7 @@
 
 #define FW_VERSION                  "0.1.0"
 #define DEFAULT_MQTT_PORT           1883
-#define DEFAULT_MQTT_TOPIC_PREFIX   "burtooth"
+#define DEFAULT_MQTT_TOPIC_PREFIX   "animated-journey"
 #define SCAN_BATCH_INTERVAL_MS      2000
 #define WIFI_CHANNEL_HOP_INTERVAL_MS 200
 #define WIFI_SCAN_DURATION_MS       5000

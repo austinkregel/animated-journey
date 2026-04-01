@@ -1,6 +1,6 @@
 substitutions:
   mqtt_broker: "192.168.3.52"
-  mqtt_topic_prefix: "burtooth"
+  mqtt_topic_prefix: "animated-journey"
 
 mqtt:
   broker: ${mqtt_broker}

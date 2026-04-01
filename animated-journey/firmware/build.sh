@@ -9,9 +9,9 @@ echo "=== Building scanner-s3 ==="
 docker build -f "${SCRIPT_DIR}/Dockerfile.build" \
   --build-arg TARGET=scanner-s3 \
   --build-arg IDF_TARGET=esp32s3 \
-  -t burtooth-s3-build "${SCRIPT_DIR}"
+  -t animated-journey-s3-build "${SCRIPT_DIR}"
 
-CONTAINER_ID=$(docker create burtooth-s3-build)
+CONTAINER_ID=$(docker create animated-journey-s3-build)
 docker cp "${CONTAINER_ID}:/project/scanner-s3/build/scanner-s3.bin" "${OUT_DIR}/scanner-s3.bin" 2>/dev/null || \
   echo "Warning: scanner-s3.bin not found (build may have failed)"
 docker rm "$CONTAINER_ID" > /dev/null
@@ -20,9 +20,9 @@ echo "=== Building scanner-c6 ==="
 docker build -f "${SCRIPT_DIR}/Dockerfile.build" \
   --build-arg TARGET=scanner-c6 \
   --build-arg IDF_TARGET=esp32c6 \
-  -t burtooth-c6-build "${SCRIPT_DIR}"
+  -t animated-journey-c6-build "${SCRIPT_DIR}"
 
-CONTAINER_ID=$(docker create burtooth-c6-build)
+CONTAINER_ID=$(docker create animated-journey-c6-build)
 docker cp "${CONTAINER_ID}:/project/scanner-c6/build/scanner-c6.bin" "${OUT_DIR}/scanner-c6.bin" 2>/dev/null || \
   echo "Warning: scanner-c6.bin not found (build may have failed)"
 docker rm "$CONTAINER_ID" > /dev/null

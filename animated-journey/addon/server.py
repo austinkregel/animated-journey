@@ -54,7 +54,7 @@ def _load_settings() -> dict:
     if SETTINGS_FILE.exists():
         return json.loads(SETTINGS_FILE.read_text())
     return {
-        "mqtt_topic_prefix": "burtooth",
+        "mqtt_topic_prefix": "animated-journey",
         "scan_interval_ms": 2000,
         "position_update_ms": 1000,
         "active_scanning": False,
@@ -185,7 +185,7 @@ async def handle_firmware_deploy(request: web.Request) -> web.Response:
     if not mqtt or not mqtt.connected:
         raise web.HTTPServiceUnavailable(text="MQTT not connected")
 
-    ota_topic = f"burtooth/nodes/{node_id}/cmd/ota"
+    ota_topic = f"animated-journey/nodes/{node_id}/cmd/ota"
     firmware_url = data.get("firmware_url", f"http://homeassistant.local:8099/api/firmware/{target}.bin")
     await mqtt.publish(ota_topic, json.dumps({"url": firmware_url, "target": target}))
 
@@ -231,7 +231,7 @@ async def handle_ota_update(request: web.Request) -> web.Response:
     if not mqtt or not mqtt.connected:
         raise web.HTTPServiceUnavailable(text="MQTT not connected")
 
-    ota_topic = f"burtooth/nodes/{node_id}/cmd/ota"
+    ota_topic = f"animated-journey/nodes/{node_id}/cmd/ota"
     firmware_url = f"http://homeassistant.local:8099{INGRESS_PATH}/api/firmware/default.bin"
     await mqtt.publish(ota_topic, json.dumps({"url": firmware_url}))
 
@@ -254,7 +254,7 @@ async def handle_node_restart(request: web.Request) -> web.Response:
     if not mqtt or not mqtt.connected:
         raise web.HTTPServiceUnavailable(text="MQTT not connected")
 
-    restart_topic = f"burtooth/nodes/{node_id}/cmd/restart"
+    restart_topic = f"animated-journey/nodes/{node_id}/cmd/restart"
     await mqtt.publish(restart_topic, json.dumps({"action": "restart"}))
     return web.json_response({"status": "ok", "node_id": node_id})
 
@@ -371,7 +371,7 @@ async def start_background_tasks(app: web.Application):
             job["status"] = payload.get("ota_status", "deploying")
 
     if mqtt_config:
-        mqtt.register_handler("burtooth/nodes/#", _handle_node_status)
+        mqtt.register_handler("animated-journey/nodes/#", _handle_node_status)
         app["mqtt_task"] = asyncio.create_task(mqtt.connect(mqtt_config))
         await engine.start(mqtt)
     else:

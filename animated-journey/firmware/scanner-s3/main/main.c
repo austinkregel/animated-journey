@@ -30,19 +30,6 @@ extern void ble_scanner_start(void);
 extern void ble_scanner_stop(void);
 extern int  ble_scanner_get_results(ble_adv_t *results, int max, int *count);
 
-/* Declared in ieee802154_scanner.c */
-extern void ieee802154_scanner_init(void);
-extern void ieee802154_scanner_start(void);
-extern void ieee802154_scanner_stop(void);
-extern int  ieee802154_scanner_get_results(scan_result_t *results, int max, int *count);
-
-#ifdef CONFIG_LORA_ENABLED
-extern void lora_scanner_init(void);
-extern void lora_scanner_start(void);
-extern void lora_scanner_stop(void);
-extern int  lora_scanner_get_results(scan_result_t *results, int max, int *count);
-#endif
-
 static nvs_config_t s_config;
 static uint32_t s_probe_count = 0;
 static uint32_t s_ble_count = 0;
@@ -131,7 +118,6 @@ static void scanner_main_loop(void *arg)
 {
     scan_result_t wifi_results[MAX_SCAN_BATCH_SIZE];
     ble_adv_t ble_results[MAX_SCAN_BATCH_SIZE];
-    scan_result_t ieee802154_results[MAX_SCAN_BATCH_SIZE];
     int count;
     int64_t last_status_time = 0;
 
@@ -143,6 +129,7 @@ static void scanner_main_loop(void *arg)
         vTaskDelay(pdMS_TO_TICKS(WIFI_SCAN_DURATION_MS));
         wifi_scanner_stop();
 
+        /* Collect and publish WiFi results */
         wifi_scanner_get_results(wifi_results, MAX_SCAN_BATCH_SIZE, &count);
         for (int i = 0; i < count; i++) {
             mqtt_reporter_publish_scan(&wifi_results[i]);
@@ -167,31 +154,6 @@ static void scanner_main_loop(void *arg)
         }
         mqtt_reporter_flush();
 
-        /* --- 802.15.4 scan phase --- */
-        ieee802154_scanner_start();
-        vTaskDelay(pdMS_TO_TICKS(SCAN_BATCH_INTERVAL_MS));
-        ieee802154_scanner_stop();
-
-        ieee802154_scanner_get_results(ieee802154_results, MAX_SCAN_BATCH_SIZE, &count);
-        for (int i = 0; i < count; i++) {
-            mqtt_reporter_publish_scan(&ieee802154_results[i]);
-        }
-        mqtt_reporter_flush();
-
-#ifdef CONFIG_LORA_ENABLED
-        /* --- LoRa scan phase --- */
-        lora_scanner_start();
-        vTaskDelay(pdMS_TO_TICKS(SCAN_BATCH_INTERVAL_MS));
-        lora_scanner_stop();
-
-        scan_result_t lora_results[MAX_SCAN_BATCH_SIZE];
-        lora_scanner_get_results(lora_results, MAX_SCAN_BATCH_SIZE, &count);
-        for (int i = 0; i < count; i++) {
-            mqtt_reporter_publish_scan(&lora_results[i]);
-        }
-        mqtt_reporter_flush();
-#endif
-
         /* --- Status report --- */
         now = esp_timer_get_time() / 1000;
         if (now - last_status_time >= STATUS_REPORT_INTERVAL_MS) {
@@ -208,7 +170,7 @@ static void scanner_main_loop(void *arg)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Burtooth Mesh Scanner (C6) v%s", FW_VERSION);
+    ESP_LOGI(TAG, "animated-journey Mesh Scanner (S3) v%s", FW_VERSION);
 
     /* Initialize NVS and load config */
     ESP_ERROR_CHECK(nvs_config_init());
@@ -240,19 +202,15 @@ void app_main(void)
     }
 
     /* Publish HA discovery */
-    mqtt_reporter_publish_discovery(s_config.node_id, "ESP32-C6");
+    mqtt_reporter_publish_discovery(s_config.node_id, "ESP32-S3");
 
     /* Initialize scanners */
     wifi_scanner_init();
     ble_scanner_init();
-    ieee802154_scanner_init();
 
-#ifdef CONFIG_LORA_ENABLED
-    lora_scanner_init();
-#endif
-
-    /* C6 is single-core, run everything on core 0 */
-    xTaskCreate(scanner_main_loop, "scanner_loop", 8192, NULL, 5, NULL);
+    /* Start main scanner loop on core 0; BLE host runs on core 1 via NimBLE */
+    xTaskCreatePinnedToCore(scanner_main_loop, "scanner_loop", 8192,
+                            NULL, 5, NULL, 0);
 
     ESP_LOGI(TAG, "Scanner started");
 }
