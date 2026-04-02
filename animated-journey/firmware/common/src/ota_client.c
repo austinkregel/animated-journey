@@ -6,6 +6,7 @@
 #include "esp_ota_ops.h"
 #include "esp_https_ota.h"
 #include "mqtt_client.h"
+#include "cJSON.h"
 #include "config.h"
 #include "ota_client.h"
 
@@ -64,20 +65,31 @@ static void mqtt_ota_data_handler(const char *data, int data_len)
         return;
     }
 
-    int copy_len = data_len < (int)(sizeof(s_ota_url) - 1) ? data_len : (int)(sizeof(s_ota_url) - 1);
-    memcpy(s_ota_url, data, copy_len);
-    s_ota_url[copy_len] = '\0';
+    char buf[512];
+    int copy_len = data_len < (int)(sizeof(buf) - 1) ? data_len : (int)(sizeof(buf) - 1);
+    memcpy(buf, data, copy_len);
+    buf[copy_len] = '\0';
 
-    /* Strip trailing whitespace/newlines */
-    while (copy_len > 0 && (s_ota_url[copy_len - 1] == '\n' ||
-           s_ota_url[copy_len - 1] == '\r' || s_ota_url[copy_len - 1] == ' ')) {
-        s_ota_url[--copy_len] = '\0';
+    const char *url = buf;
+
+    cJSON *root = cJSON_Parse(buf);
+    if (root) {
+        cJSON *url_item = cJSON_GetObjectItem(root, "url");
+        if (cJSON_IsString(url_item) && url_item->valuestring) {
+            url = url_item->valuestring;
+        }
     }
 
-    if (copy_len == 0) {
-        ESP_LOGW(TAG, "Empty OTA URL received");
+    int url_len = strlen(url);
+    if (url_len == 0 || url_len >= (int)sizeof(s_ota_url)) {
+        ESP_LOGW(TAG, "Empty or too-long OTA URL");
+        cJSON_Delete(root);
         return;
     }
+
+    strncpy(s_ota_url, url, sizeof(s_ota_url) - 1);
+    s_ota_url[sizeof(s_ota_url) - 1] = '\0';
+    cJSON_Delete(root);
 
     ESP_LOGI(TAG, "OTA URL received: %s", s_ota_url);
     s_ota_pending = true;

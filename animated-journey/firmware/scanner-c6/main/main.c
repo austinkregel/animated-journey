@@ -7,7 +7,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_timer.h"
-#include "esp_sntp.h"
+#include "esp_netif_sntp.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "config.h"
@@ -103,9 +103,8 @@ static void wifi_init_sta(void)
 static void sntp_init_time(void)
 {
     ESP_LOGI(TAG, "Initializing SNTP");
-    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0, "pool.ntp.org");
-    esp_sntp_init();
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    esp_netif_sntp_init(&config);
 }
 
 static void publish_status(void)
@@ -129,9 +128,9 @@ static void publish_status(void)
 
 static void scanner_main_loop(void *arg)
 {
-    scan_result_t wifi_results[MAX_SCAN_BATCH_SIZE];
-    ble_adv_t ble_results[MAX_SCAN_BATCH_SIZE];
-    scan_result_t ieee802154_results[MAX_SCAN_BATCH_SIZE];
+    static scan_result_t wifi_results[MAX_SCAN_BATCH_SIZE];
+    static ble_adv_t ble_results[MAX_SCAN_BATCH_SIZE];
+    static scan_result_t ieee802154_results[MAX_SCAN_BATCH_SIZE];
     int count;
     int64_t last_status_time = 0;
 
@@ -184,7 +183,7 @@ static void scanner_main_loop(void *arg)
         vTaskDelay(pdMS_TO_TICKS(SCAN_BATCH_INTERVAL_MS));
         lora_scanner_stop();
 
-        scan_result_t lora_results[MAX_SCAN_BATCH_SIZE];
+        static scan_result_t lora_results[MAX_SCAN_BATCH_SIZE];
         lora_scanner_get_results(lora_results, MAX_SCAN_BATCH_SIZE, &count);
         for (int i = 0; i < count; i++) {
             mqtt_reporter_publish_scan(&lora_results[i]);
@@ -239,6 +238,9 @@ void app_main(void)
         retries++;
     }
 
+    /* Initialize OTA client */
+    ota_client_init(mqtt_reporter_get_client(), s_config.node_id);
+
     /* Publish HA discovery */
     mqtt_reporter_publish_discovery(s_config.node_id, "ESP32-C6");
 
@@ -252,7 +254,7 @@ void app_main(void)
 #endif
 
     /* C6 is single-core, run everything on core 0 */
-    xTaskCreate(scanner_main_loop, "scanner_loop", 8192, NULL, 5, NULL);
+    xTaskCreate(scanner_main_loop, "scanner_loop", 4096, NULL, 5, NULL);
 
     ESP_LOGI(TAG, "Scanner started");
 }

@@ -18,6 +18,8 @@ idf_component_register(
         bt
         esp_https_ota
         esp_http_client
+        app_update
         json
-        esp_sntp
+        esp_timer
+
 )

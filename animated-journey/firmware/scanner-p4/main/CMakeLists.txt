@@ -1,10 +1,10 @@
 idf_component_register(
     SRCS
         "main.c"
-        "wifi_scanner.c"
+        "ethernet.c"
         "ble_scanner.c"
-        "ieee802154_scanner.c"
-        "lora_scanner.c"
+        "led_ctrl.c"
+        "audio_beep.c"
         "../../common/src/mqtt_reporter.c"
         "../../common/src/ota_client.c"
         "../../common/src/nvs_config.c"
@@ -12,10 +12,10 @@ idf_component_register(
         "."
         "../../common/include"
     REQUIRES
-        esp_wifi
         nvs_flash
         esp_event
         esp_netif
+        esp_eth
         mqtt
         bt
         esp_https_ota
@@ -23,6 +23,6 @@ idf_component_register(
         app_update
         json
         esp_timer
-
-        ieee802154
+        driver
+        esp_codec_dev
 )

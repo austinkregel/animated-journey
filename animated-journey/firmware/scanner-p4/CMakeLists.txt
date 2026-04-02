@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 set(EXTRA_COMPONENT_DIRS "../common")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(scanner-s3)
+project(scanner-p4)
 
 # Workaround: IDF v5.4.x NimBLE ble_gap.c has missing forward declarations
 idf_component_get_property(bt_lib bt COMPONENT_LIB)

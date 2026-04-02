@@ -32,6 +32,11 @@ static int s_queue_count = 0;
 static SemaphoreHandle_t s_queue_mutex = NULL;
 
 static bool s_discovery_published = false;
+static bool s_initialized = false;
+static mqtt_command_cb_t s_command_cb = NULL;
+static char s_cmd_topic_prefix[TOPIC_MAX_LEN] = {0};
+
+static uint32_t s_drop_count = 0;
 
 static void enqueue_msg(const char *topic, const char *payload, int qos)
 {
@@ -39,7 +44,10 @@ static void enqueue_msg(const char *topic, const char *payload, int qos)
     if (s_queue_count >= MSG_QUEUE_SIZE) {
         s_queue_tail = (s_queue_tail + 1) % MSG_QUEUE_SIZE;
         s_queue_count--;
-        ESP_LOGW(TAG, "Message queue full, dropping oldest");
+        s_drop_count++;
+        if (s_drop_count == 1 || (s_drop_count % 256) == 0) {
+            ESP_LOGW(TAG, "Message queue full, %"PRIu32" messages dropped total", s_drop_count);
+        }
     }
     mqtt_msg_t *msg = &s_msg_queue[s_queue_head];
     strncpy(msg->topic, topic, TOPIC_MAX_LEN - 1);
@@ -77,15 +85,38 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT connected");
         s_connected = true;
+        s_drop_count = 0;
         if (!s_discovery_published) {
             mqtt_reporter_publish_discovery(s_node_id, "scanner");
             s_discovery_published = true;
+        }
+        if (s_cmd_topic_prefix[0]) {
+            char sub_topic[TOPIC_MAX_LEN + 4];
+            snprintf(sub_topic, sizeof(sub_topic), "%s/#", s_cmd_topic_prefix);
+            esp_mqtt_client_subscribe(s_client, sub_topic, 1);
+            ESP_LOGI(TAG, "Subscribed to %s", sub_topic);
         }
         drain_queue();
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGW(TAG, "MQTT disconnected");
         s_connected = false;
+        break;
+    case MQTT_EVENT_DATA:
+        if (s_command_cb && event->topic_len > 0 && event->topic) {
+            size_t prefix_len = strlen(s_cmd_topic_prefix);
+            if ((size_t)event->topic_len > prefix_len + 1 &&
+                memcmp(event->topic, s_cmd_topic_prefix, prefix_len) == 0 &&
+                event->topic[prefix_len] == '/') {
+                const char *cmd = event->topic + prefix_len + 1;
+                int cmd_len = event->topic_len - prefix_len - 1;
+                char cmd_buf[64];
+                int n = cmd_len < (int)sizeof(cmd_buf) - 1 ? cmd_len : (int)sizeof(cmd_buf) - 1;
+                memcpy(cmd_buf, cmd, n);
+                cmd_buf[n] = '\0';
+                s_command_cb(cmd_buf, event->data, event->data_len);
+            }
+        }
         break;
     case MQTT_EVENT_ERROR:
         ESP_LOGE(TAG, "MQTT error type: %d", event->error_handle->error_type);
@@ -117,15 +148,32 @@ void mqtt_reporter_init(const mqtt_reporter_config_t *config)
         .credentials.authentication.password = config->password,
     };
 
+    snprintf(s_cmd_topic_prefix, sizeof(s_cmd_topic_prefix),
+             "%s/nodes/%s/cmd", DEFAULT_MQTT_TOPIC_PREFIX, config->node_id);
+
     s_client = esp_mqtt_client_init(&mqtt_cfg);
     esp_mqtt_client_register_event(s_client, ESP_EVENT_ANY_ID,
                                     mqtt_event_handler, NULL);
     esp_mqtt_client_start(s_client);
+    s_initialized = true;
     ESP_LOGI(TAG, "MQTT client started, broker=%s:%u", config->host, config->port);
+}
+
+void mqtt_reporter_set_command_callback(mqtt_command_cb_t cb)
+{
+    s_command_cb = cb;
 }
 
 void mqtt_reporter_publish_scan(const scan_result_t *result)
 {
+    if (!s_initialized) {
+        static bool warned = false;
+        if (!warned) {
+            ESP_LOGW(TAG, "publish_scan called but MQTT not initialized (no network?), scan results will be dropped");
+            warned = true;
+        }
+        return;
+    }
     char topic[TOPIC_MAX_LEN];
     char payload[MSG_MAX_LEN];
     char mac_str[18];
@@ -144,36 +192,45 @@ void mqtt_reporter_publish_scan(const scan_result_t *result)
     snprintf(topic, sizeof(topic), "%s/scan/%s/%s",
              DEFAULT_MQTT_TOPIC_PREFIX, type_str, s_node_id);
 
+    double timestamp_s = result->timestamp_ms / 1000.0;
+
     if (result->type == SCAN_WIFI_PROBE) {
         const wifi_probe_t *probe = (const wifi_probe_t *)result;
         snprintf(payload, sizeof(payload),
                  "{\"mac\":\"%s\",\"rssi\":%d,\"channel\":%u,"
-                 "\"ssid\":\"%.*s\",\"ts\":%" PRId64 "}",
+                 "\"ssid\":\"%.*s\",\"node_id\":\"%s\",\"type\":\"%s\","
+                 "\"timestamp\":%.3f}",
                  mac_str, result->rssi, result->channel,
-                 probe->ssid_len, probe->ssid, result->timestamp_ms);
+                 probe->ssid_len, probe->ssid,
+                 s_node_id, type_str, timestamp_s);
     } else if (result->type == SCAN_WIFI_BEACON) {
         const wifi_beacon_t *beacon = (const wifi_beacon_t *)result;
         char bssid_str[18];
         format_mac(beacon->bssid, bssid_str, sizeof(bssid_str));
         snprintf(payload, sizeof(payload),
                  "{\"mac\":\"%s\",\"rssi\":%d,\"channel\":%u,"
-                 "\"ssid\":\"%.*s\",\"bssid\":\"%s\",\"enc\":%u,\"ts\":%" PRId64 "}",
+                 "\"ssid\":\"%.*s\",\"bssid\":\"%s\",\"enc\":%u,"
+                 "\"node_id\":\"%s\",\"type\":\"%s\",\"timestamp\":%.3f}",
                  mac_str, result->rssi, result->channel,
                  beacon->ssid_len, beacon->ssid, bssid_str,
-                 beacon->encryption, result->timestamp_ms);
+                 beacon->encryption,
+                 s_node_id, type_str, timestamp_s);
     } else if (result->type == SCAN_BLE_ADV) {
         const ble_adv_t *adv = (const ble_adv_t *)result;
         snprintf(payload, sizeof(payload),
                  "{\"mac\":\"%s\",\"rssi\":%d,\"name\":\"%.*s\","
-                 "\"addr_type\":%u,\"adv_type\":%u,\"tx_power\":%d,\"ts\":%" PRId64 "}",
+                 "\"addr_type\":%u,\"adv_type\":%u,\"tx_power\":%d,"
+                 "\"node_id\":\"%s\",\"type\":\"%s\",\"timestamp\":%.3f}",
                  mac_str, result->rssi,
                  adv->name_len, adv->name,
-                 adv->addr_type, adv->adv_type,
-                 adv->tx_power, result->timestamp_ms);
+                 adv->addr_type, adv->adv_type, adv->tx_power,
+                 s_node_id, type_str, timestamp_s);
     } else {
         snprintf(payload, sizeof(payload),
-                 "{\"mac\":\"%s\",\"rssi\":%d,\"channel\":%u,\"ts\":%" PRId64 "}",
-                 mac_str, result->rssi, result->channel, result->timestamp_ms);
+                 "{\"mac\":\"%s\",\"rssi\":%d,\"channel\":%u,"
+                 "\"node_id\":\"%s\",\"type\":\"%s\",\"timestamp\":%.3f}",
+                 mac_str, result->rssi, result->channel,
+                 s_node_id, type_str, timestamp_s);
     }
 
     if (s_connected) {
@@ -185,6 +242,14 @@ void mqtt_reporter_publish_scan(const scan_result_t *result)
 
 void mqtt_reporter_publish_status(const node_status_t *status)
 {
+    if (!s_initialized) {
+        static bool warned = false;
+        if (!warned) {
+            ESP_LOGW(TAG, "publish_status called but MQTT not initialized (no network?), status reports will be dropped");
+            warned = true;
+        }
+        return;
+    }
     char topic[TOPIC_MAX_LEN];
     char payload[MSG_MAX_LEN];
 
@@ -206,94 +271,110 @@ void mqtt_reporter_publish_status(const node_status_t *status)
     }
 }
 
-void mqtt_reporter_publish_discovery(const char *node_id, const char *model)
+static void publish_discovery_sensor(const char *node_id, const char *model,
+                                     const char *suffix, const char *name_suffix,
+                                     const char *value_tpl,
+                                     const char *unit, const char *dev_class,
+                                     const char *entity_cat)
 {
     char topic[TOPIC_MAX_LEN];
     char payload[MSG_MAX_LEN];
 
-    /* Sensor: WiFi probe count */
     snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/animated-journey_%s_probes/config", node_id);
-    snprintf(payload, sizeof(payload),
-             "{\"name\":\"animated-journey %s Probes\","
+             "homeassistant/sensor/animated-journey_%s_%s/config", node_id, suffix);
+
+    int n = snprintf(payload, sizeof(payload),
+             "{\"name\":\"%s\","
              "\"state_topic\":\"%s/nodes/%s/status\","
-             "\"value_template\":\"{{ value_json.probes }}\","
-             "\"unique_id\":\"animated-journey_%s_probes\","
-             "\"device\":{\"identifiers\":[\"animated-journey_%s\"],"
+             "\"value_template\":\"%s\","
+             "\"unique_id\":\"animated-journey_%s_%s\","
+             "\"object_id\":\"aj_%s_%s\"",
+             name_suffix,
+             DEFAULT_MQTT_TOPIC_PREFIX, node_id, value_tpl,
+             node_id, suffix, node_id, suffix);
+
+    if (unit) {
+        n += snprintf(payload + n, sizeof(payload) - n,
+                      ",\"unit_of_measurement\":\"%s\"", unit);
+    }
+    if (dev_class) {
+        n += snprintf(payload + n, sizeof(payload) - n,
+                      ",\"device_class\":\"%s\"", dev_class);
+    }
+    if (entity_cat) {
+        n += snprintf(payload + n, sizeof(payload) - n,
+                      ",\"entity_category\":\"%s\"", entity_cat);
+    }
+    snprintf(payload + n, sizeof(payload) - n,
+             ",\"device\":{\"identifiers\":[\"animated-journey_%s\"],"
              "\"name\":\"animated-journey %s\",\"model\":\"%s\","
              "\"manufacturer\":\"animated-journey\"}}",
-             node_id, DEFAULT_MQTT_TOPIC_PREFIX, node_id,
-             node_id, node_id, node_id, model);
+             node_id, node_id, model);
 
     if (s_connected) {
         esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 1);
     } else {
         enqueue_msg(topic, payload, 0);
     }
+}
 
-    /* Sensor: BLE adv count */
-    snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/animated-journey_%s_ble/config", node_id);
-    snprintf(payload, sizeof(payload),
-             "{\"name\":\"animated-journey %s BLE\","
-             "\"state_topic\":\"%s/nodes/%s/status\","
-             "\"value_template\":\"{{ value_json.ble }}\","
-             "\"unique_id\":\"animated-journey_%s_ble\","
-             "\"device\":{\"identifiers\":[\"animated-journey_%s\"],"
-             "\"name\":\"animated-journey %s\",\"model\":\"%s\","
-             "\"manufacturer\":\"animated-journey\"}}",
-             node_id, DEFAULT_MQTT_TOPIC_PREFIX, node_id,
-             node_id, node_id, node_id, model);
-
-    if (s_connected) {
-        esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 1);
-    } else {
-        enqueue_msg(topic, payload, 0);
+void mqtt_reporter_publish_discovery(const char *node_id, const char *model)
+{
+    if (!s_initialized) {
+        ESP_LOGW(TAG, "publish_discovery called but MQTT not initialized (no network?), discovery will not be sent");
+        return;
     }
 
-    /* Sensor: uptime */
-    snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/animated-journey_%s_uptime/config", node_id);
-    snprintf(payload, sizeof(payload),
-             "{\"name\":\"animated-journey %s Uptime\","
-             "\"state_topic\":\"%s/nodes/%s/status\","
-             "\"value_template\":\"{{ value_json.uptime }}\","
-             "\"unit_of_measurement\":\"s\","
-             "\"unique_id\":\"animated-journey_%s_uptime\","
-             "\"device\":{\"identifiers\":[\"animated-journey_%s\"],"
-             "\"name\":\"animated-journey %s\",\"model\":\"%s\","
-             "\"manufacturer\":\"animated-journey\"}}",
-             node_id, DEFAULT_MQTT_TOPIC_PREFIX, node_id,
-             node_id, node_id, node_id, model);
+    publish_discovery_sensor(node_id, model, "ble", "BLE Advertisements",
+        "{{ value_json.ble }}", NULL, NULL, NULL);
 
-    if (s_connected) {
-        esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 1);
-    } else {
-        enqueue_msg(topic, payload, 0);
+    publish_discovery_sensor(node_id, model, "probes", "WiFi Probes",
+        "{{ value_json.probes }}", NULL, NULL, NULL);
+
+    publish_discovery_sensor(node_id, model, "beacons", "WiFi Beacons",
+        "{{ value_json.beacons }}", NULL, NULL, NULL);
+
+    publish_discovery_sensor(node_id, model, "uptime", "Uptime",
+        "{{ value_json.uptime }}", "s", "duration", NULL);
+
+    publish_discovery_sensor(node_id, model, "heap", "Free Heap",
+        "{{ value_json.free_heap }}", "B", NULL, "diagnostic");
+
+    publish_discovery_sensor(node_id, model, "fw", "Firmware",
+        "{{ value_json.fw_version }}", NULL, NULL, "diagnostic");
+
+    publish_discovery_sensor(node_id, model, "wifi_rssi", "WiFi RSSI",
+        "{{ value_json.wifi_rssi }}", "dBm", "signal_strength", "diagnostic");
+
+    /* Button: Identify -- blinks the status LED for 10s */
+    {
+        char topic[TOPIC_MAX_LEN];
+        char payload[MSG_MAX_LEN];
+
+        snprintf(topic, sizeof(topic),
+                 "homeassistant/button/animated-journey_%s_identify/config", node_id);
+        snprintf(payload, sizeof(payload),
+                 "{\"name\":\"Identify\","
+                 "\"command_topic\":\"%s/nodes/%s/cmd/identify\","
+                 "\"unique_id\":\"animated-journey_%s_identify\","
+                 "\"object_id\":\"aj_%s_identify\","
+                 "\"device_class\":\"identify\","
+                 "\"entity_category\":\"config\","
+                 "\"device\":{\"identifiers\":[\"animated-journey_%s\"],"
+                 "\"name\":\"animated-journey %s\",\"model\":\"%s\","
+                 "\"manufacturer\":\"animated-journey\"}}",
+                 DEFAULT_MQTT_TOPIC_PREFIX, node_id,
+                 node_id, node_id,
+                 node_id, node_id, model);
+
+        if (s_connected) {
+            esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 1);
+        } else {
+            enqueue_msg(topic, payload, 0);
+        }
     }
 
-    /* Sensor: free heap */
-    snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/animated-journey_%s_heap/config", node_id);
-    snprintf(payload, sizeof(payload),
-             "{\"name\":\"animated-journey %s Free Heap\","
-             "\"state_topic\":\"%s/nodes/%s/status\","
-             "\"value_template\":\"{{ value_json.free_heap }}\","
-             "\"unit_of_measurement\":\"B\","
-             "\"unique_id\":\"animated-journey_%s_heap\","
-             "\"device\":{\"identifiers\":[\"animated-journey_%s\"],"
-             "\"name\":\"animated-journey %s\",\"model\":\"%s\","
-             "\"manufacturer\":\"animated-journey\"}}",
-             node_id, DEFAULT_MQTT_TOPIC_PREFIX, node_id,
-             node_id, node_id, node_id, model);
-
-    if (s_connected) {
-        esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 1);
-    } else {
-        enqueue_msg(topic, payload, 0);
-    }
-
-    ESP_LOGI(TAG, "Published HA MQTT auto-discovery for node %s", node_id);
+    ESP_LOGI(TAG, "Published HA MQTT auto-discovery for node %s (7 sensors + 1 button)", node_id);
 }
 
 bool mqtt_reporter_is_connected(void)
@@ -301,8 +382,16 @@ bool mqtt_reporter_is_connected(void)
     return s_connected;
 }
 
+esp_mqtt_client_handle_t mqtt_reporter_get_client(void)
+{
+    return s_client;
+}
+
 void mqtt_reporter_flush(void)
 {
+    if (!s_initialized) {
+        return;
+    }
     if (s_connected) {
         drain_queue();
     }
