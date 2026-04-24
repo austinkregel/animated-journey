@@ -52,26 +52,15 @@ typedef struct {
     int repeats;
 } beep_params_t;
 
-static void pa_enable(bool on)
-{
-    gpio_set_level(PA_ENABLE_GPIO, on ? 1 : 0);
-}
-
 esp_err_t audio_beep_init(void)
 {
+    esp_err_t ret;
+
     s_play_mutex = xSemaphoreCreateMutex();
     configASSERT(s_play_mutex);
 
-    /* PA GPIO (NS4150B CTRL) -- start disabled */
-    gpio_config_t pa_cfg = {
-        .pin_bit_mask = 1ULL << PA_ENABLE_GPIO,
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&pa_cfg);
-    pa_enable(false);
+    /* PA GPIO (NS4150B CTRL) is owned by esp_codec_dev via es_cfg.pa_pin below;
+     * the codec driver configures the pin and toggles it on dev_open/close. */
 
     /* I2C master bus for ES8311 control */
     i2c_master_bus_config_t i2c_bus_cfg = {
@@ -83,7 +72,7 @@ esp_err_t audio_beep_init(void)
         .flags.enable_internal_pullup = true,
     };
     i2c_master_bus_handle_t i2c_bus = NULL;
-    esp_err_t ret = i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus);
+    ret = i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2C master bus init failed: %s", esp_err_to_name(ret));
         return ret;
@@ -125,7 +114,7 @@ esp_err_t audio_beep_init(void)
     ret = i2s_channel_init_std_mode(s_i2s_tx, &std_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2S STD init failed: %s", esp_err_to_name(ret));
-        return ret;
+        goto fail;
     }
 
     /* ES8311 codec via esp_codec_dev (addr field expects 8-bit / left-shifted format) */
@@ -151,7 +140,8 @@ esp_err_t audio_beep_init(void)
     const audio_codec_if_t *codec_if = es8311_codec_new(&es_cfg);
     if (codec_if == NULL) {
         ESP_LOGE(TAG, "ES8311 codec init failed");
-        return ESP_FAIL;
+        ret = ESP_FAIL;
+        goto fail;
     }
 
     /* I2S data interface for codec dev */
@@ -170,12 +160,21 @@ esp_err_t audio_beep_init(void)
     s_codec_dev = esp_codec_dev_new(&dev_cfg);
     if (s_codec_dev == NULL) {
         ESP_LOGE(TAG, "esp_codec_dev_new failed");
-        return ESP_FAIL;
+        ret = ESP_FAIL;
+        goto fail;
     }
 
     s_initialized = true;
     ESP_LOGI(TAG, "Audio beep initialized (ES8311 + NS4150B on GPIO%d)", PA_ENABLE_GPIO);
     return ESP_OK;
+
+fail:
+    if (s_i2s_tx) {
+        i2s_del_channel(s_i2s_tx);
+        s_i2s_tx = NULL;
+    }
+    s_codec_dev = NULL;
+    return ret;
 }
 
 static void generate_tone(int16_t *buf, int num_samples, int freq_hz, int sample_rate)
@@ -280,7 +279,14 @@ void audio_beep_play(int freq_hz, int duration_ms, int gap_ms, int repeats)
     p->gap_ms = gap_ms;
     p->repeats = repeats;
 
-    xTaskCreate(beep_task, "beep", 4096, p, 5, NULL);
+    BaseType_t ok = xTaskCreate(beep_task, "beep", 4096, p, 5, NULL);
+    if (ok != pdPASS) {
+        free(p);
+        xSemaphoreTake(s_play_mutex, portMAX_DELAY);
+        s_playing = false;
+        xSemaphoreGive(s_play_mutex);
+        ESP_LOGE(TAG, "Failed to spawn beep task");
+    }
 }
 
 void audio_beep_identify(void)

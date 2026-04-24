@@ -1,4 +1,6 @@
 dependencies:
   espressif/esp_hosted: "*"
   espressif/esp_wifi_remote: "*"
-  espressif/esp_codec_dev: "^1.4.0"
+  # Pinned to 1.5.6: 1.5.7+ references i2s_std_clk_config_t.bclk_div which
+  # only exists in IDF v5.5+; our Docker image is on IDF v5.4.
+  espressif/esp_codec_dev: "==1.5.6"
