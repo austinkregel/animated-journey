@@ -99,6 +99,7 @@ class NodePlacer {
       z: options.z != null ? options.z : 0,
       status: options.status || 'online',
       last_seen: options.last_seen || null,
+      auto_discovered: options.auto_discovered || false,
     };
 
     // CRS.Simple: L.latLng(y, x)
@@ -203,6 +204,7 @@ class NodePlacer {
       z: n.z,
       status: n.status,
       last_seen: n.last_seen,
+      auto_discovered: n.auto_discovered || false,
     }));
   }
 
@@ -214,13 +216,30 @@ class NodePlacer {
     this.nodes = [];
 
     (nodesArray || []).forEach((n) => {
-      this.addNode(
-        { x: n.x || 0, y: n.y || 0 },
-        n.node_id,
-        n.type || 'scanner',
-        { z: n.z || 0, status: n.status, last_seen: n.last_seen }
-      );
+      var isUnplaced = n.auto_discovered && n.x === 0 && n.y === 0;
+      if (isUnplaced) {
+        var node = {
+          node_id: n.node_id || n.id,
+          type: n.type || 'scanner',
+          x: 0,
+          y: 0,
+          z: n.z || 0,
+          status: n.status || 'online',
+          last_seen: n.last_seen || null,
+          auto_discovered: true,
+        };
+        this.nodes.push(node);
+      } else {
+        this.addNode(
+          { x: n.x || 0, y: n.y || 0 },
+          n.node_id || n.id,
+          n.type || 'scanner',
+          { z: n.z || 0, status: n.status, last_seen: n.last_seen, auto_discovered: n.auto_discovered }
+        );
+      }
     });
+
+    this.onNodeChange(this.getNodes());
   }
 
   updateNodeStatus(nodeId, status, lastSeen) {
@@ -233,6 +252,19 @@ class NodePlacer {
       marker.setIcon(this._createIcon(node.type, node.status));
       marker.setPopupContent(this._buildPopupContent(node));
     }
+  }
+
+  getUnplacedNodes() {
+    return this.nodes.filter((n) => n.auto_discovered && n.x === 0 && n.y === 0);
+  }
+
+  placeDiscoveredNode(nodeId, xy, type) {
+    var node = this.nodes.find((n) => n.node_id === nodeId);
+    if (!node) return;
+
+    this.nodes = this.nodes.filter((n) => n.node_id !== nodeId);
+    node.auto_discovered = false;
+    this.addNode(xy, nodeId, type || node.type, { z: node.z, status: node.status, last_seen: node.last_seen });
   }
 
   getTypeColors() {

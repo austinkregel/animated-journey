@@ -261,6 +261,58 @@ html, body {
   opacity: 1;
 }
 
+/* ---- Auto-discovered / Unplaced Nodes ---- */
+
+.node-list-divider {
+  padding: 6px 0 4px !important;
+  border-bottom: none !important;
+  display: block !important;
+}
+
+.node-list-divider-text {
+  font-size: 10px;
+  color: #58a6ff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.node-list-unplaced {
+  opacity: 0.7;
+}
+
+.node-list-unplaced:hover {
+  opacity: 1;
+}
+
+.node-color-dot.unplaced {
+  border: 1px dashed #888;
+  background: transparent !important;
+}
+
+.node-new-badge {
+  display: inline-block;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #1e3a1e;
+  color: #22c55e;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.node-place-btn {
+  flex-shrink: 0;
+}
+
+.firmware-node-discovered {
+  border-color: #22c55e33;
+  border-style: dashed;
+}
+
 /* ---- Status ---- */
 
 #status-info {

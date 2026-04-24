@@ -92,9 +92,10 @@ async def handle_status(request: web.Request) -> web.Response:
 
     node_statuses = app.get("node_statuses", {})
 
+    all_nodes = config.get("nodes", [])
     return web.json_response({
         "mqtt_connected": mqtt.connected if mqtt else False,
-        "node_count": len(config.get("nodes", [])),
+        "node_count": len(all_nodes),
         "tracked_devices": tracked,
         "ingress_path": INGRESS_PATH,
         "node_statuses": node_statuses,
@@ -198,24 +199,24 @@ async def handle_firmware_deploy(request: web.Request) -> web.Response:
 
 async def handle_get_nodes(request: web.Request) -> web.Response:
     config = _load_config()
-    mqtt = request.app.get("mqtt")
     node_statuses = request.app.get("node_statuses", {})
 
     nodes = []
     for n in config.get("nodes", []):
-        nid = n.get("node_id", "")
+        nid = n.get("node_id") or n.get("id", "")
         status = node_statuses.get(nid, {})
         nodes.append({
             "node_id": nid,
             "type": n.get("type", "unknown"),
-            "x": n.get("x"),
-            "y": n.get("y"),
+            "x": n.get("x", 0),
+            "y": n.get("y", 0),
             "z": n.get("z", 0),
             "online": status.get("online", False),
             "firmware_version": status.get("firmware_version", ""),
             "ip": status.get("ip", ""),
             "uptime": status.get("uptime"),
             "last_seen": status.get("last_seen"),
+            "auto_discovered": n.get("auto_discovered", False),
         })
 
     return web.json_response({"nodes": nodes})
@@ -343,6 +344,32 @@ async def start_background_tasks(app: web.Application):
     app["route_analyzer"] = RouteAnalyzer()
     app["llm"] = LLMQuery(ha_api)
 
+    pending_config_save = {"dirty": False}
+
+    def _auto_discover_node(node_id: str, payload: dict):
+        config = _load_config()
+        nodes = config.get("nodes", [])
+        known_ids = {n.get("node_id") or n.get("id") for n in nodes}
+        if node_id in known_ids:
+            return
+        new_node = {
+            "node_id": node_id,
+            "type": "scanner",
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "auto_discovered": True,
+        }
+        if isinstance(payload, dict):
+            if payload.get("fw_version"):
+                new_node["firmware_version"] = payload["fw_version"]
+            if payload.get("model"):
+                new_node["model"] = payload["model"]
+        nodes.append(new_node)
+        config["nodes"] = nodes
+        _save_config(config)
+        logger.info("Auto-discovered new node: %s", node_id)
+
     async def _handle_node_status(topic: str, payload):
         parts = topic.split("/")
         if len(parts) < 3:
@@ -352,7 +379,7 @@ async def start_background_tasks(app: web.Application):
         if isinstance(payload, dict):
             statuses[node_id] = {
                 "online": payload.get("online", True),
-                "firmware_version": payload.get("firmware_version", ""),
+                "firmware_version": payload.get("fw_version", payload.get("firmware_version", "")),
                 "ip": payload.get("ip", ""),
                 "uptime": payload.get("uptime"),
                 "last_seen": time.time(),
@@ -360,6 +387,8 @@ async def start_background_tasks(app: web.Application):
         else:
             statuses.setdefault(node_id, {})["last_seen"] = time.time()
             statuses[node_id]["online"] = True
+
+        _auto_discover_node(node_id, payload if isinstance(payload, dict) else {})
 
         ota_progress = None
         if isinstance(payload, dict):

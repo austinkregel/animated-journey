@@ -195,9 +195,18 @@
   // ---- Map Click -> Place Node ----
   map.on('click', function (e) {
     if (currentTab !== 'map') return;
-    // CRS.Simple: latlng.lat = y, latlng.lng = x
     var clickX = e.latlng.lng;
     var clickY = e.latlng.lat;
+
+    if (placingNodeId) {
+      var nid = placingNodeId;
+      placingNodeId = null;
+      document.getElementById('map').style.cursor = '';
+      nodePlacer.placeDiscoveredNode(nid, { x: clickX, y: clickY }, selectedNodeType);
+      showToast(nid + ' placed on map');
+      return;
+    }
+
     showModal('Place Node', [
       { id: 'nodeId', label: 'Node ID', type: 'text', placeholder: 'e.g. front-porch' },
       { id: 'nodeZ', label: 'Height (m)', type: 'number', placeholder: '0', value: '0', step: '0.1' },
@@ -220,8 +229,12 @@
     }
     empty.style.display = 'none';
 
+    var placedNodes = nodes.filter(function (n) { return !(n.auto_discovered && n.x === 0 && n.y === 0); });
+    var unplacedNodes = nodes.filter(function (n) { return n.auto_discovered && n.x === 0 && n.y === 0; });
+
     var colors = nodePlacer.getTypeColors();
-    nodes.forEach(function (node) {
+
+    placedNodes.forEach(function (node) {
       var li = document.createElement('li');
       var color = colors[node.type] || '#6b7280';
 
@@ -241,6 +254,41 @@
       li.appendChild(removeBtn);
       list.appendChild(li);
     });
+
+    if (unplacedNodes.length) {
+      var divider = document.createElement('li');
+      divider.className = 'node-list-divider';
+      divider.innerHTML = '<span class="node-list-divider-text">Discovered — click map to place</span>';
+      list.appendChild(divider);
+
+      unplacedNodes.forEach(function (node) {
+        var li = document.createElement('li');
+        li.className = 'node-list-unplaced';
+        li.innerHTML =
+          '<div class="node-list-item">' +
+            '<span class="node-color-dot unplaced" style="background:#6b7280"></span>' +
+            '<span class="node-list-name">' + node.node_id + '</span>' +
+            '<span class="node-new-badge">New</span>' +
+          '</div>';
+
+        var placeBtn = document.createElement('button');
+        placeBtn.className = 'btn-secondary btn-sm node-place-btn';
+        placeBtn.textContent = 'Place';
+        placeBtn.addEventListener('click', function () {
+          startPlacingDiscoveredNode(node.node_id);
+        });
+        li.appendChild(placeBtn);
+        list.appendChild(li);
+      });
+    }
+  }
+
+  var placingNodeId = null;
+
+  function startPlacingDiscoveredNode(nodeId) {
+    placingNodeId = nodeId;
+    showToast('Click the map to place ' + nodeId);
+    document.getElementById('map').style.cursor = 'crosshair';
   }
 
   // ---- Floor Plan Dimensions ----
@@ -526,12 +574,13 @@
     nodes.forEach(function (node) {
       var statusClass = node.online ? 'online' : 'offline';
       var statusText = node.online ? 'Online' : 'Offline';
+      var badgeHtml = node.auto_discovered ? '<span class="node-new-badge">New</span>' : '';
 
       var card = document.createElement('div');
-      card.className = 'firmware-node-card';
+      card.className = 'firmware-node-card' + (node.auto_discovered ? ' firmware-node-discovered' : '');
       card.innerHTML =
         '<div class="firmware-node-header">' +
-          '<span class="firmware-node-name">' + node.node_id + '</span>' +
+          '<span class="firmware-node-name">' + node.node_id + badgeHtml + '</span>' +
           '<div class="firmware-node-status">' +
             '<span class="status-dot ' + statusClass + '"></span> ' + statusText +
           '</div>' +
@@ -894,6 +943,8 @@
   }
 
   // ---- Status Polling ----
+  var lastKnownNodeCount = -1;
+
   function pollStatus() {
     fetch(apiUrl('/api/status'))
       .then(function (r) { return r.json(); })
@@ -909,6 +960,14 @@
         }
         if (data.node_count != null) {
           updateActiveNodesCount(data.node_count);
+
+          if (lastKnownNodeCount >= 0 && data.node_count !== lastKnownNodeCount) {
+            loadConfig();
+            if (currentTab === 'firmware') {
+              loadFirmwareNodes();
+            }
+          }
+          lastKnownNodeCount = data.node_count;
         }
         if (data.tracked_devices != null) {
           document.getElementById('tracked-devices-count').textContent = data.tracked_devices + ' devices';
