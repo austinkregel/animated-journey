@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUT_DIR="${SCRIPT_DIR}/out"
+LOG_DIR="${SCRIPT_DIR}/logs"
 
 usage() {
     cat <<EOF
@@ -20,7 +21,16 @@ Required:
 
 Options:
   --app-only        Flash only the app partition (skip bootloader/partition table)
+  --erase-first     Run 'esptool erase-flash' before writing (recovers from partial flashes)
+  --baud <n>        esptool serial baud rate (default: 460800; try 115200 for flaky USB-serial)
+  --no-stub         Disable stub flasher; write via ROM (slower, more reliable on weak USB-serial)
+  --no-compress     Send raw image bytes instead of compressed (lower CPU on chip = less brownout)
   --no-provision    Skip NVS provisioning prompt
+  --no-monitor      Do not capture a boot log after flashing/provisioning
+  --monitor-seconds <n>
+                    Serial monitor timeout in seconds (default: 45)
+  --monitor-log <path>
+                    Boot log output path (default: logs/<target>-<timestamp>.log)
   --node-id <id>    Node identifier for NVS provisioning
   --mqtt-host <ip>  MQTT broker address for NVS provisioning
   --mqtt-port <n>   MQTT broker port (default: 1883)
@@ -66,13 +76,87 @@ bootloader_offset() {
     esac
 }
 
+# Flash size varies by board target
+flash_size_for_target() {
+    case "$1" in
+        scanner-p4) echo "16MB" ;;
+        *)          echo "4MB" ;;
+    esac
+}
+
+monitor_boot_log() {
+    [[ "$MONITOR" == true ]] || return 0
+
+    mkdir -p "$LOG_DIR"
+    if [[ -z "$MONITOR_LOG" ]]; then
+        MONITOR_LOG="${LOG_DIR}/${TARGET}-$(date +%Y%m%d-%H%M%S).log"
+    fi
+
+    echo ""
+    echo "=== Capturing boot log (${MONITOR_SECONDS}s max) ==="
+    echo "  Port: ${PORT}"
+    echo "  Log:  ${MONITOR_LOG}"
+    echo "  Stops early on panic/assert/reboot markers."
+    echo ""
+
+    python3 - "$PORT" "$MONITOR_SECONDS" "$MONITOR_LOG" <<'PY'
+import re
+import sys
+import time
+
+try:
+    import serial
+except ImportError:
+    print("ERROR: pyserial is required for monitoring. Install with: python3 -m pip install pyserial")
+    sys.exit(2)
+
+port = sys.argv[1]
+timeout_s = float(sys.argv[2])
+log_path = sys.argv[3]
+
+stop_re = re.compile(
+    r"(assert failed|Guru Meditation|panic'ed|Rebooting\.\.\.|SW_CPU_RESET|TG[01]WDT_SYS_RESET)",
+    re.IGNORECASE,
+)
+
+deadline = time.monotonic() + timeout_s
+stopped_reason = "timeout"
+
+with serial.Serial(port, 115200, timeout=0.2) as ser, open(log_path, "w", encoding="utf-8", errors="replace") as log:
+    while time.monotonic() < deadline:
+        raw = ser.readline()
+        if not raw:
+            continue
+
+        text = raw.decode("utf-8", errors="replace")
+        print(text, end="")
+        log.write(text)
+        log.flush()
+
+        match = stop_re.search(text)
+        if match:
+            stopped_reason = f"matched '{match.group(1)}'"
+            break
+
+print(f"\n=== Serial monitor stopped: {stopped_reason} ===")
+PY
+}
+
 [[ $# -lt 1 ]] && usage
 
 TARGET="$1"; shift
 CHIP=$(chip_for_target "$TARGET")
+FLASH_SIZE=$(flash_size_for_target "$TARGET")
 PORT=""
 APP_ONLY=false
+ERASE_FIRST=false
+BAUD=460800
+USE_STUB=true
+COMPRESS=true
 NO_PROVISION=false
+MONITOR=true
+MONITOR_SECONDS=45
+MONITOR_LOG=""
 NODE_ID=""
 MQTT_HOST=""
 MQTT_PORT=1883
@@ -83,16 +167,35 @@ WIFI_PASS=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        "") shift ;; # tolerate empty args from trailing-space line continuations
         --port)         PORT="$2"; shift 2 ;;
+        --port=*)       PORT="${1#*=}"; shift ;;
         --app-only)     APP_ONLY=true; shift ;;
+        --erase-first)  ERASE_FIRST=true; shift ;;
+        --baud)         BAUD="$2"; shift 2 ;;
+        --baud=*)       BAUD="${1#*=}"; shift ;;
+        --no-stub)      USE_STUB=false; shift ;;
+        --no-compress)  COMPRESS=false; shift ;;
         --no-provision) NO_PROVISION=true; shift ;;
+        --no-monitor)   MONITOR=false; shift ;;
+        --monitor-seconds) MONITOR_SECONDS="$2"; shift 2 ;;
+        --monitor-seconds=*) MONITOR_SECONDS="${1#*=}"; shift ;;
+        --monitor-log)  MONITOR_LOG="$2"; shift 2 ;;
+        --monitor-log=*) MONITOR_LOG="${1#*=}"; shift ;;
         --node-id)      NODE_ID="$2"; shift 2 ;;
+        --node-id=*)    NODE_ID="${1#*=}"; shift ;;
         --mqtt-host)    MQTT_HOST="$2"; shift 2 ;;
+        --mqtt-host=*)  MQTT_HOST="${1#*=}"; shift ;;
         --mqtt-port)    MQTT_PORT="$2"; shift 2 ;;
+        --mqtt-port=*)  MQTT_PORT="${1#*=}"; shift ;;
         --mqtt-user)    MQTT_USER="$2"; shift 2 ;;
+        --mqtt-user=*)  MQTT_USER="${1#*=}"; shift ;;
         --mqtt-pass)    MQTT_PASS="$2"; shift 2 ;;
+        --mqtt-pass=*)  MQTT_PASS="${1#*=}"; shift ;;
         --wifi-ssid)    WIFI_SSID="$2"; shift 2 ;;
+        --wifi-ssid=*)  WIFI_SSID="${1#*=}"; shift ;;
         --wifi-pass)    WIFI_PASS="$2"; shift 2 ;;
+        --wifi-pass=*)  WIFI_PASS="${1#*=}"; shift ;;
         -h|--help)      usage ;;
         *)              echo "Unknown option: $1"; usage ;;
     esac
@@ -112,13 +215,28 @@ BOOT_OFFSET=$(bootloader_offset "$CHIP")
 
 echo "=== Flashing ${TARGET} (${CHIP}) via ${PORT} ==="
 
+ESPTOOL_COMMON=(--chip "$CHIP" --port "$PORT" --baud "$BAUD")
+ESPTOOL_WRITE=("${ESPTOOL_COMMON[@]}")
+[[ "$USE_STUB" == false ]] && ESPTOOL_WRITE+=(--no-stub)
+
+WRITE_FLAGS=()
+[[ "$COMPRESS" == false ]] && WRITE_FLAGS+=(--no-compress)
+
+if [[ "$ERASE_FIRST" == true ]]; then
+    # Full-chip erase requires the stub flasher (ROM bootloader only exposes erase-region).
+    # Always use the stub here regardless of --no-stub for the write phase.
+    echo "  Erasing flash first (--erase-first, using stub)"
+    python3 -m esptool "${ESPTOOL_COMMON[@]}" erase-flash
+fi
+
 if [[ "$APP_ONLY" == true ]]; then
     echo "  App-only flash to 0x10000"
-    python3 -m esptool --chip "$CHIP" --port "$PORT" --baud 460800 \
-        write_flash 0x10000 "$APP_BIN"
+    python3 -m esptool "${ESPTOOL_WRITE[@]}" \
+        write-flash ${WRITE_FLAGS[@]+"${WRITE_FLAGS[@]}"} 0x10000 "$APP_BIN"
 else
     BOOTLOADER="${ARTIFACT_DIR}/bootloader.bin"
     PART_TABLE="${ARTIFACT_DIR}/partition-table.bin"
+    OTA_DATA="${ARTIFACT_DIR}/ota_data_initial.bin"
 
     if [[ ! -f "$BOOTLOADER" ]]; then
         echo "Error: bootloader.bin not found in ${ARTIFACT_DIR}"
@@ -132,12 +250,31 @@ else
     echo "  Bootloader    -> ${BOOT_OFFSET}"
     echo "  Partition table -> 0x8000"
     echo "  App binary    -> 0x10000"
+    if [[ -f "$OTA_DATA" ]]; then
+        echo "  OTA data      -> 0x3d0000"
+    else
+        echo "  OTA data      -> skipped (ota_data_initial.bin not found)"
+    fi
 
-    python3 -m esptool --chip "$CHIP" --port "$PORT" --baud 460800 \
-        write_flash \
-        "$BOOT_OFFSET" "$BOOTLOADER" \
-        0x8000 "$PART_TABLE" \
+    FLASH_ARGS=(
+        "${ESPTOOL_WRITE[@]}"
+        --before default-reset
+        --after hard-reset
+        write-flash
+        ${WRITE_FLAGS[@]+"${WRITE_FLAGS[@]}"}
+        --flash-mode dio
+        --flash-size "$FLASH_SIZE"
+        --flash-freq 80m
+        "$BOOT_OFFSET" "$BOOTLOADER"
+        0x8000 "$PART_TABLE"
         0x10000 "$APP_BIN"
+    )
+
+    if [[ -f "$OTA_DATA" ]]; then
+        FLASH_ARGS+=(0x3d0000 "$OTA_DATA")
+    fi
+
+    python3 -m esptool "${FLASH_ARGS[@]}"
 fi
 
 echo ""
@@ -146,6 +283,7 @@ echo "=== Firmware flashed ==="
 # NVS provisioning
 if [[ "$NO_PROVISION" == true ]]; then
     echo "Skipping NVS provisioning (--no-provision)."
+    monitor_boot_log
     exit 0
 fi
 
@@ -156,6 +294,7 @@ if [[ -z "$NODE_ID" || -z "$MQTT_HOST" ]]; then
     echo ""
     echo "  python3 tools/provision.py --port ${PORT} --chip ${CHIP} \\"
     echo "      --node-id <name> --mqtt-host <ip>"
+    monitor_boot_log
     exit 0
 fi
 
@@ -178,4 +317,4 @@ python3 "${SCRIPT_DIR}/tools/provision.py" "${PROVISION_ARGS[@]}"
 
 echo ""
 echo "=== Done! Node '${NODE_ID}' is ready. ==="
-echo "Monitor with: python3 -m serial.tools.miniterm ${PORT} 115200  (pip install pyserial)"
+monitor_boot_log

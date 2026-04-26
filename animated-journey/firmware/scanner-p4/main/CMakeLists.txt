@@ -21,7 +21,6 @@ idf_component_register(
         esp_https_ota
         esp_http_client
         app_update
-        json
         esp_timer
         driver
         esp_codec_dev

@@ -8,6 +8,7 @@
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
 #include "host/ble_gap.h"
+#include "esp_hosted_misc.h"
 #include "config.h"
 #include "scanner_types.h"
 
@@ -146,7 +147,7 @@ bool ble_scanner_init(void)
         return false;
     }
 
-    ESP_LOGI(TAG, "Calling nimble_port_init()...");
+    ESP_LOGI(TAG, "Calling nimble_port_init() (triggers SDIO transport to C6)...");
     esp_err_t ret = nimble_port_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "nimble_port_init() failed: %s (0x%x) -- is the C6 co-processor responding?",
@@ -154,6 +155,30 @@ bool ble_scanner_init(void)
         return false;
     }
     ESP_LOGI(TAG, "nimble_port_init() succeeded");
+
+    ESP_LOGI(TAG, "Waiting for ESP-Hosted transport, then init+enable C6 BT controller...");
+    esp_err_t bt_ret = ESP_FAIL;
+    for (int i = 1; i <= 20; i++) {
+        bt_ret = esp_hosted_bt_controller_init();
+        if (bt_ret == ESP_OK) break;
+        ESP_LOGW(TAG, "Attempt %d/20: esp_hosted_bt_controller_init() returned %s -- retrying in 1s",
+                 i, esp_err_to_name(bt_ret));
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    if (bt_ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_hosted_bt_controller_init() failed after retries: %s (0x%x)",
+                 esp_err_to_name(bt_ret), bt_ret);
+        return false;
+    }
+    ESP_LOGI(TAG, "C6 BT controller initialized");
+
+    bt_ret = esp_hosted_bt_controller_enable();
+    if (bt_ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_hosted_bt_controller_enable() failed: %s (0x%x)",
+                 esp_err_to_name(bt_ret), bt_ret);
+        return false;
+    }
+    ESP_LOGI(TAG, "C6 BT controller enabled");
 
     ESP_LOGI(TAG, "Starting NimBLE host task...");
     nimble_port_freertos_init(nimble_host_task);

@@ -21,6 +21,17 @@ usage() {
 clean_cache() {
     echo "=== Removing idf-source caches ==="
     rm -rf "${IDF_DIR}/builds" "${IDF_DIR}/components" "${IDF_DIR}/cache"
+    # Also purge in-tree build/managed_components dirs that VSCode/idf.py
+    # extensions may have created on the host. If they are left behind they
+    # get rsynced into the docker build dir and reintroduce stale targets.
+    for pair in "${ALL_TARGETS[@]}"; do
+        local target="${pair%%:*}"
+        rm -rf "${SCRIPT_DIR}/${target}/build" \
+               "${SCRIPT_DIR}/${target}/managed_components"
+        rm -f  "${SCRIPT_DIR}/${target}/sdkconfig" \
+               "${SCRIPT_DIR}/${target}/sdkconfig.old" \
+               "${SCRIPT_DIR}/${target}/dependencies.lock"
+    done
     echo "Done."
     exit 0
 }
@@ -42,6 +53,20 @@ build_target() {
 
     prepare_dirs "$target"
 
+    # Self-heal stale CMakeCache.txt when an external tool (e.g. the VSCode
+    # ESP-IDF extension) reconfigured this build dir against a different
+    # target. Without this, idf.py refuses to build with:
+    #   "Target settings are not consistent: '<x>' in env, '<y>' in CMakeCache"
+    local cache_file="${IDF_DIR}/builds/${target}/CMakeCache.txt"
+    if [[ -f "$cache_file" ]]; then
+        local cached_target
+        cached_target="$(grep -E '^IDF_TARGET:' "$cache_file" | head -n1 | cut -d= -f2 || true)"
+        if [[ -n "$cached_target" && "$cached_target" != "$idf_target" ]]; then
+            echo "  -> stale CMakeCache target '${cached_target}' != '${idf_target}', purging build dir"
+            rm -rf "${IDF_DIR}/builds/${target:?}"/*
+        fi
+    fi
+
     # Bind-mount layout:
     #   /src                (ro)  <- firmware source tree
     #   /project/<t>/build        <- idf-source/builds/<t>   (CMake cache + objects)
@@ -59,7 +84,13 @@ build_target() {
       ". /opt/esp/idf/export.sh && \
        mkdir -p /project/common /project/${target} && \
        cp -a /src/common/. /project/common/ && \
-       cp -a /src/${target}/. /project/${target}/ && \
+       for entry in /src/${target}/*; do \
+           name=\$(basename \"\$entry\"); \
+           case \"\$name\" in \
+               build|managed_components|sdkconfig|sdkconfig.old|dependencies.lock) continue ;; \
+           esac; \
+           cp -a \"\$entry\" /project/${target}/; \
+       done && \
        cd /project/${target} && \
        idf.py build"
 
@@ -71,6 +102,7 @@ build_target() {
         cp "${build}/${target}.bin"                          "${dest}/${target}.bin"
         cp "${build}/bootloader/bootloader.bin"              "${dest}/bootloader.bin"    2>/dev/null || true
         cp "${build}/partition_table/partition-table.bin"     "${dest}/partition-table.bin" 2>/dev/null || true
+        cp "${build}/ota_data_initial.bin"                   "${dest}/ota_data_initial.bin" 2>/dev/null || true
         cp "${build}/flasher_args.json"                      "${dest}/flasher_args.json" 2>/dev/null || true
         echo "  -> ${target} artifacts copied to out/${target}/"
     else
