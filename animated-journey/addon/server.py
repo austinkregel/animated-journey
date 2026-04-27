@@ -18,6 +18,18 @@ logger = logging.getLogger(__name__)
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 INGRESS_PATH = os.environ.get("INGRESS_PATH", "")
 DATA_DIR = Path("/data")
+
+# Mark a node offline if we haven't heard a status from it within 3x the
+# firmware's STATUS_REPORT_INTERVAL_MS (30s). 90s gives us tolerance for
+# one missed report without flapping.
+NODE_STALE_TIMEOUT_S = 90.0
+
+
+def _is_node_online(status: dict) -> bool:
+    last_seen = status.get("last_seen")
+    if last_seen is None:
+        return False
+    return (time.time() - last_seen) < NODE_STALE_TIMEOUT_S
 CONFIG_FILE = DATA_DIR / "config.json"
 FIRMWARE_DIR = DATA_DIR / "firmware"
 OVERLAY_DIR = DATA_DIR / "overlays"
@@ -105,6 +117,10 @@ async def handle_status(request: web.Request) -> web.Response:
             pass
 
     node_statuses = app.get("node_statuses", {})
+    enriched_statuses = {
+        nid: {**status, "online": _is_node_online(status)}
+        for nid, status in node_statuses.items()
+    }
 
     all_nodes = config.get("nodes", [])
     return web.json_response({
@@ -112,7 +128,7 @@ async def handle_status(request: web.Request) -> web.Response:
         "node_count": len(all_nodes),
         "tracked_devices": tracked,
         "ingress_path": INGRESS_PATH,
-        "node_statuses": node_statuses,
+        "node_statuses": enriched_statuses,
     })
 
 
@@ -225,7 +241,7 @@ async def handle_get_nodes(request: web.Request) -> web.Response:
             "x": n.get("x", 0),
             "y": n.get("y", 0),
             "z": n.get("z", 0),
-            "online": status.get("online", False),
+            "online": _is_node_online(status),
             "firmware_version": status.get("firmware_version", ""),
             "ip": status.get("ip", ""),
             "uptime": status.get("uptime"),
@@ -412,21 +428,20 @@ async def start_background_tasks(app: web.Application):
 
     async def _handle_node_status(topic: str, payload):
         parts = topic.split("/")
-        if len(parts) < 3:
+        if len(parts) < 4 or parts[3] != "status":
             return
         node_id = parts[2]
         statuses = app["node_statuses"]
+        now = time.time()
         if isinstance(payload, dict):
             statuses[node_id] = {
-                "online": payload.get("online", True),
                 "firmware_version": payload.get("fw_version", payload.get("firmware_version", "")),
                 "ip": payload.get("ip", ""),
                 "uptime": payload.get("uptime"),
-                "last_seen": time.time(),
+                "last_seen": now,
             }
         else:
-            statuses.setdefault(node_id, {})["last_seen"] = time.time()
-            statuses[node_id]["online"] = True
+            statuses.setdefault(node_id, {})["last_seen"] = now
 
         _auto_discover_node(node_id, payload if isinstance(payload, dict) else {})
 
