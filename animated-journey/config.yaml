@@ -1,6 +1,6 @@
 name: animated-journey Mesh
 description: Passive RF scanning mesh for neighborhood device mapping
-version: "0.5.0"
+version: "0.5.1"
 slug: animated-journey-mesh
 url: https://github.com/austinkregel/animated-journey
 arch:
@@ -24,7 +24,15 @@ options:
   mqtt_topic_prefix: animated-journey
   scan_interval_ms: 2000
   position_update_ms: 1000
+  mqtt_host: ""
+  mqtt_port: 1883
+  mqtt_user: ""
+  mqtt_pass: ""
 schema:
   mqtt_topic_prefix: str
   scan_interval_ms: int
   position_update_ms: int
+  mqtt_host: str?
+  mqtt_port: int?
+  mqtt_user: str?
+  mqtt_pass: password?

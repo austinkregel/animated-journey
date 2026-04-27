@@ -22,6 +22,16 @@ CONFIG_FILE = DATA_DIR / "config.json"
 FIRMWARE_DIR = DATA_DIR / "firmware"
 OVERLAY_DIR = DATA_DIR / "overlays"
 SETTINGS_FILE = DATA_DIR / "settings.json"
+ADDON_OPTIONS_FILE = DATA_DIR / "options.json"
+
+
+def _load_addon_options() -> dict:
+    if ADDON_OPTIONS_FILE.exists():
+        try:
+            return json.loads(ADDON_OPTIONS_FILE.read_text())
+        except (json.JSONDecodeError, OSError):
+            logger.exception("Failed to read addon options.json")
+    return {}
 
 MIME_TYPES = {
     ".png": "image/png",
@@ -334,7 +344,22 @@ async def handle_llm_query(request: web.Request) -> web.Response:
 
 
 async def start_background_tasks(app: web.Application):
-    mqtt_config = await ha_api.get_mqtt_config()
+    mqtt_config = None
+    addon_options = _load_addon_options()
+    if addon_options.get("mqtt_host"):
+        mqtt_config = {
+            "host": addon_options["mqtt_host"],
+            "port": int(addon_options.get("mqtt_port", 1883)),
+            "username": addon_options.get("mqtt_user", ""),
+            "password": addon_options.get("mqtt_pass", ""),
+        }
+        logger.info("Using MQTT config from addon options (host=%s)", mqtt_config["host"])
+
+    if not mqtt_config:
+        mqtt_config = await ha_api.get_mqtt_config()
+        if mqtt_config:
+            logger.info("Using MQTT config from Supervisor (host=%s)", mqtt_config["host"])
+
     if not mqtt_config:
         settings = _load_settings()
         if settings.get("mqtt_host"):
@@ -345,6 +370,7 @@ async def start_background_tasks(app: web.Application):
                 "password": settings.get("mqtt_pass", ""),
             }
             logger.info("Using MQTT config from settings (host=%s)", mqtt_config["host"])
+
     mqtt = mqtt_client.MQTTClient()
     app["mqtt"] = mqtt
     app["node_statuses"] = {}
