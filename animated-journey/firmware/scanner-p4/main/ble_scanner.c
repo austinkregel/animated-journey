@@ -1,9 +1,11 @@
 #include <string.h>
+#include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
@@ -14,14 +16,69 @@
 
 static const char *TAG = "ble_scanner";
 
-#define BLE_RING_BUF_SIZE MAX_SCAN_BATCH_SIZE
+/* ---------- hash table --------------------------------------------------- */
 
-static ble_adv_t s_ring_buf[BLE_RING_BUF_SIZE];
-static int s_ring_head = 0;
-static int s_ring_count = 0;
-static SemaphoreHandle_t s_ring_mutex = NULL;
+#define TABLE_CAP MAX_BLE_TRACKED
+
+typedef struct {
+    bool     occupied;
+    ble_adv_t snapshot;
+    int64_t  first_seen_us;
+    int64_t  last_seen_us;
+    uint32_t seen_count;
+    uint32_t unique_id;
+} ble_slot_t;
+
+static ble_slot_t *s_table = NULL;
+static int s_table_count = 0;
+static uint32_t s_unique_total = 0;
+static SemaphoreHandle_t s_table_mutex = NULL;
 static bool s_scanning = false;
 static bool s_initialized = false;
+
+static uint32_t fnv1a_mac(const uint8_t *mac)
+{
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < 6; i++) {
+        h ^= mac[i];
+        h *= 16777619u;
+    }
+    return h;
+}
+
+static int table_find_or_insert(const uint8_t *mac, bool *is_new)
+{
+    uint32_t h = fnv1a_mac(mac);
+    uint32_t idx = h % TABLE_CAP;
+
+    for (uint32_t i = 0; i < TABLE_CAP; i++) {
+        uint32_t probe = (idx + i) % TABLE_CAP;
+        if (!s_table[probe].occupied) {
+            *is_new = true;
+            return (int)probe;
+        }
+        if (memcmp(s_table[probe].snapshot.base.mac, mac, 6) == 0) {
+            *is_new = false;
+            return (int)probe;
+        }
+    }
+
+    /* Table full: evict the LRU entry */
+    int lru_idx = 0;
+    int64_t lru_time = INT64_MAX;
+    for (int i = 0; i < TABLE_CAP; i++) {
+        if (s_table[i].occupied && s_table[i].last_seen_us < lru_time) {
+            lru_time = s_table[i].last_seen_us;
+            lru_idx = i;
+        }
+    }
+    s_table[lru_idx].occupied = false;
+    s_table_count--;
+    *is_new = true;
+    return lru_idx;
+}
+
+/* ---------- advertisement parsing ---------------------------------------- */
 
 static const char *nimble_rc_str(int rc)
 {
@@ -42,17 +99,6 @@ static const char *nimble_rc_str(int rc)
     case BLE_HS_ETIMEOUT_HCI:   return "ETIMEOUT_HCI (HCI request timed out, controller unresponsive)";
     default:                    return "unknown";
     }
-}
-
-static void ring_buf_push(const ble_adv_t *adv)
-{
-    xSemaphoreTake(s_ring_mutex, portMAX_DELAY);
-    memcpy(&s_ring_buf[s_ring_head], adv, sizeof(ble_adv_t));
-    s_ring_head = (s_ring_head + 1) % BLE_RING_BUF_SIZE;
-    if (s_ring_count < BLE_RING_BUF_SIZE) {
-        s_ring_count++;
-    }
-    xSemaphoreGive(s_ring_mutex);
 }
 
 static void parse_adv_fields(const uint8_t *data, uint8_t data_len, ble_adv_t *adv)
@@ -107,29 +153,75 @@ static void parse_adv_fields(const uint8_t *data, uint8_t data_len, ble_adv_t *a
     }
 }
 
+/* ---------- GAP callback ------------------------------------------------- */
+
 static int gap_event_cb(struct ble_gap_event *event, void *arg)
 {
     if (event->type != BLE_GAP_EVENT_DISC) return 0;
 
     const struct ble_gap_disc_desc *desc = &event->disc;
+    int64_t now_us = esp_timer_get_time();
 
-    ble_adv_t adv = {0};
-    memcpy(adv.base.mac, desc->addr.val, 6);
-    adv.base.rssi = desc->rssi;
-    adv.base.channel = 0;
-    adv.base.type = SCAN_BLE_ADV;
-    adv.base.timestamp_ms = esp_timer_get_time() / 1000;
-    adv.addr_type = desc->addr.type;
-    adv.adv_type = desc->event_type;
-    adv.tx_power = -127;
+    ble_adv_t incoming = {0};
+    memcpy(incoming.base.mac, desc->addr.val, 6);
+    incoming.base.rssi = desc->rssi;
+    incoming.base.channel = 0;
+    incoming.base.type = SCAN_BLE_ADV;
+    incoming.base.timestamp_ms = now_us / 1000;
+    incoming.addr_type = desc->addr.type;
+    incoming.adv_type = desc->event_type;
+    incoming.tx_power = -127;
 
     if (desc->length_data > 0 && desc->data != NULL) {
-        parse_adv_fields(desc->data, desc->length_data, &adv);
+        parse_adv_fields(desc->data, desc->length_data, &incoming);
     }
 
-    ring_buf_push(&adv);
+    xSemaphoreTake(s_table_mutex, portMAX_DELAY);
+
+    bool is_new = false;
+    int idx = table_find_or_insert(desc->addr.val, &is_new);
+
+    ble_slot_t *slot = &s_table[idx];
+
+    if (is_new) {
+        memset(slot, 0, sizeof(*slot));
+        slot->occupied = true;
+        slot->first_seen_us = now_us;
+        slot->seen_count = 0;
+        s_table_count++;
+        s_unique_total++;
+        memcpy(&slot->snapshot, &incoming, sizeof(ble_adv_t));
+    } else {
+        slot->snapshot.base.rssi = incoming.base.rssi;
+        slot->snapshot.base.timestamp_ms = incoming.base.timestamp_ms;
+        slot->snapshot.adv_type = incoming.adv_type;
+        if (incoming.name_len > 0) {
+            memcpy(slot->snapshot.name, incoming.name, incoming.name_len + 1);
+            slot->snapshot.name_len = incoming.name_len;
+        }
+        if (incoming.manufacturer_data_len > 0) {
+            memcpy(slot->snapshot.manufacturer_data, incoming.manufacturer_data,
+                   incoming.manufacturer_data_len);
+            slot->snapshot.manufacturer_data_len = incoming.manufacturer_data_len;
+        }
+        if (incoming.tx_power != -127) {
+            slot->snapshot.tx_power = incoming.tx_power;
+        }
+        if (incoming.service_uuid_count > 0) {
+            memcpy(slot->snapshot.service_uuids, incoming.service_uuids,
+                   incoming.service_uuid_count * sizeof(uint16_t));
+            slot->snapshot.service_uuid_count = incoming.service_uuid_count;
+        }
+    }
+
+    slot->last_seen_us = now_us;
+    slot->seen_count++;
+
+    xSemaphoreGive(s_table_mutex);
     return 0;
 }
+
+/* ---------- NimBLE host task --------------------------------------------- */
 
 static void nimble_host_task(void *param)
 {
@@ -137,13 +229,26 @@ static void nimble_host_task(void *param)
     nimble_port_freertos_deinit();
 }
 
+/* ---------- public API --------------------------------------------------- */
+
 bool ble_scanner_init(void)
 {
     ESP_LOGI(TAG, "Initializing BLE scanner (NimBLE over ESP-Hosted SDIO)...");
 
-    s_ring_mutex = xSemaphoreCreateMutex();
-    if (!s_ring_mutex) {
-        ESP_LOGE(TAG, "Failed to create ring buffer mutex");
+    s_table_mutex = xSemaphoreCreateMutex();
+    if (!s_table_mutex) {
+        ESP_LOGE(TAG, "Failed to create table mutex");
+        return false;
+    }
+
+    s_table = heap_caps_calloc(TABLE_CAP, sizeof(ble_slot_t),
+                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_table) {
+        s_table = calloc(TABLE_CAP, sizeof(ble_slot_t));
+    }
+    if (!s_table) {
+        ESP_LOGE(TAG, "Failed to allocate BLE table (%u bytes)",
+                 (unsigned)(TABLE_CAP * sizeof(ble_slot_t)));
         return false;
     }
 
@@ -184,7 +289,8 @@ bool ble_scanner_init(void)
     nimble_port_freertos_init(nimble_host_task);
 
     s_initialized = true;
-    ESP_LOGI(TAG, "BLE scanner initialized, waiting for host-controller sync before scanning");
+    ESP_LOGI(TAG, "BLE scanner initialized (table cap=%d), waiting for host-controller sync",
+             TABLE_CAP);
     return true;
 }
 
@@ -250,17 +356,63 @@ void ble_scanner_stop(void)
     ESP_LOGI(TAG, "BLE scanning stopped");
 }
 
-int ble_scanner_get_results(ble_adv_t *results, int max, int *count)
+int ble_scanner_drain_seen(ble_adv_t *out, int max, int *count)
 {
-    xSemaphoreTake(s_ring_mutex, portMAX_DELAY);
-    int n = s_ring_count < max ? s_ring_count : max;
-    int tail = (s_ring_head - s_ring_count + BLE_RING_BUF_SIZE) % BLE_RING_BUF_SIZE;
-    for (int i = 0; i < n; i++) {
-        int idx = (tail + i) % BLE_RING_BUF_SIZE;
-        memcpy(&results[i], &s_ring_buf[idx], sizeof(ble_adv_t));
+    xSemaphoreTake(s_table_mutex, portMAX_DELAY);
+    int n = 0;
+    for (int i = 0; i < TABLE_CAP && n < max; i++) {
+        if (!s_table[i].occupied) continue;
+
+        ble_adv_t *dst = &out[n];
+        memcpy(dst, &s_table[i].snapshot, sizeof(ble_adv_t));
+        dst->seen_count = s_table[i].seen_count;
+        dst->first_seen_s = (double)s_table[i].first_seen_us / 1000000.0;
+        dst->event = BLE_EVENT_SEEN;
+        n++;
     }
-    s_ring_count -= n;
     *count = n;
-    xSemaphoreGive(s_ring_mutex);
+    xSemaphoreGive(s_table_mutex);
+    return n;
+}
+
+int ble_scanner_drain_gone(ble_adv_t *out, int max, int *count)
+{
+    int64_t now_us = esp_timer_get_time();
+    int64_t cutoff_us = (int64_t)BLE_GONE_TIMEOUT_MS * 1000LL;
+
+    xSemaphoreTake(s_table_mutex, portMAX_DELAY);
+    int n = 0;
+    for (int i = 0; i < TABLE_CAP && n < max; i++) {
+        if (!s_table[i].occupied) continue;
+        if ((now_us - s_table[i].last_seen_us) < cutoff_us) continue;
+
+        ble_adv_t *dst = &out[n];
+        memcpy(dst, &s_table[i].snapshot, sizeof(ble_adv_t));
+        dst->seen_count = s_table[i].seen_count;
+        dst->first_seen_s = (double)s_table[i].first_seen_us / 1000000.0;
+        dst->event = BLE_EVENT_GONE;
+        n++;
+
+        s_table[i].occupied = false;
+        s_table_count--;
+    }
+    *count = n;
+    xSemaphoreGive(s_table_mutex);
+    return n;
+}
+
+int ble_scanner_active_count(void)
+{
+    xSemaphoreTake(s_table_mutex, portMAX_DELAY);
+    int n = s_table_count;
+    xSemaphoreGive(s_table_mutex);
+    return n;
+}
+
+uint32_t ble_scanner_unique_total(void)
+{
+    xSemaphoreTake(s_table_mutex, portMAX_DELAY);
+    uint32_t n = s_unique_total;
+    xSemaphoreGive(s_table_mutex);
     return n;
 }

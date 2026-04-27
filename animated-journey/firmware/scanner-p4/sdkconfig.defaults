@@ -38,5 +38,8 @@ CONFIG_LWIP_SNTP_MAX_SERVERS=3
 # Audio codec (ES8311 on I2C for speaker output)
 CONFIG_CODEC_ES8311_SUPPORT=y
 
+# Compiler optimization: size (-Os) to reduce binary footprint
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
 # FreeRTOS
 CONFIG_FREERTOS_HZ=1000

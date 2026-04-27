@@ -11,6 +11,11 @@ typedef enum {
     SCAN_LORA,
 } scan_type_t;
 
+typedef enum {
+    BLE_EVENT_SEEN = 0,
+    BLE_EVENT_GONE = 1,
+} ble_event_t;
+
 typedef struct {
     uint8_t  mac[6];
     int8_t   rssi;
@@ -45,6 +50,9 @@ typedef struct {
     int8_t   tx_power;
     uint16_t service_uuids[8];
     uint8_t  service_uuid_count;
+    uint32_t seen_count;
+    double   first_seen_s;
+    uint8_t  event;
 } ble_adv_t;
 
 typedef struct {
@@ -56,4 +64,5 @@ typedef struct {
     uint32_t probe_count;
     uint32_t ble_count;
     uint32_t beacon_count;
+    uint32_t ble_active;
 } node_status_t;

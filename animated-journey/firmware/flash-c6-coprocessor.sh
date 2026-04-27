@@ -9,7 +9,13 @@ BUILD_DIR="$DEFAULT_BUILD_DIR"
 COMPONENTS_DIR="${IDF_DIR}/components/c6-coprocessor"
 CACHE_DIR="${IDF_DIR}/cache"
 IMAGE_NAME="animated-journey-idf"
-DEFAULT_SOURCE_DIR="${SCRIPT_DIR}/scanner-p4/managed_components/espressif__esp_hosted/slave"
+DEFAULT_SOURCE_DIR=""
+# Prefer local managed_components, fall back to Docker build's component dir
+if [[ -d "${SCRIPT_DIR}/scanner-p4/managed_components/espressif__esp_hosted/slave" ]]; then
+    DEFAULT_SOURCE_DIR="${SCRIPT_DIR}/scanner-p4/managed_components/espressif__esp_hosted/slave"
+elif [[ -d "${IDF_DIR}/components/scanner-p4/espressif__esp_hosted/slave" ]]; then
+    DEFAULT_SOURCE_DIR="${IDF_DIR}/components/scanner-p4/espressif__esp_hosted/slave"
+fi
 
 usage() {
     cat <<EOF
@@ -121,12 +127,16 @@ PY
 }
 
 build_coprocessor() {
-    if [[ ! -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then
-        echo "Error: ESP-Hosted slave project not found at:"
-        echo "  ${SOURCE_DIR}"
+    if [[ -z "$SOURCE_DIR" || ! -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then
+        echo "Error: ESP-Hosted slave project not found."
+        echo "  Tried: ${SCRIPT_DIR}/scanner-p4/managed_components/espressif__esp_hosted/slave"
+        echo "         ${IDF_DIR}/components/scanner-p4/espressif__esp_hosted/slave"
         echo ""
         echo "Build scanner-p4 once first so ESP-IDF component manager checks out esp_hosted:"
         echo "  ./build.sh scanner-p4"
+        echo ""
+        echo "Or to flash an existing build without rebuilding, use --flash-only with --build-dir:"
+        echo "  $0 --port <port> --flash-only --build-dir ${IDF_DIR}/builds/scanner-p4/slave-c6"
         exit 1
     fi
 

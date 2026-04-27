@@ -59,6 +59,10 @@ def _load_settings() -> dict:
         "position_update_ms": 1000,
         "active_scanning": False,
         "max_tracked_devices": 500,
+        "mqtt_host": "",
+        "mqtt_port": 1883,
+        "mqtt_user": "",
+        "mqtt_pass": "",
     }
 
 
@@ -331,6 +335,16 @@ async def handle_llm_query(request: web.Request) -> web.Response:
 
 async def start_background_tasks(app: web.Application):
     mqtt_config = await ha_api.get_mqtt_config()
+    if not mqtt_config:
+        settings = _load_settings()
+        if settings.get("mqtt_host"):
+            mqtt_config = {
+                "host": settings["mqtt_host"],
+                "port": int(settings.get("mqtt_port", 1883)),
+                "username": settings.get("mqtt_user", ""),
+                "password": settings.get("mqtt_pass", ""),
+            }
+            logger.info("Using MQTT config from settings (host=%s)", mqtt_config["host"])
     mqtt = mqtt_client.MQTTClient()
     app["mqtt"] = mqtt
     app["node_statuses"] = {}

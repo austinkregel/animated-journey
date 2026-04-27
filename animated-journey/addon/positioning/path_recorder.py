@@ -158,6 +158,18 @@ class PathRecorder:
 
         session.points.append(point)
 
+    def close_path_for_mac(self, mac: str) -> Optional[PathSession]:
+        """Close and return the active path for a specific MAC, if any."""
+        mac_lower = mac.lower()
+        session = self._active_paths.pop(mac_lower, None)
+        if session is None:
+            return None
+        session.closed = True
+        if session.point_count >= 2:
+            return session
+        logger.debug("Discarding single-point path for %s (gone)", session.mac_hash)
+        return None
+
     def close_stale_paths(self, max_gap_s: float = 120.0) -> list[PathSession]:
         """Close paths where the last point was recorded more than max_gap_s ago."""
         now = time.time()

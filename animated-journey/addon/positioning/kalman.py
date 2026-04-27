@@ -179,6 +179,10 @@ class KalmanTracker:
     def get_all_states(self) -> dict[str, dict]:
         return {mac: self.get_state(mac) for mac in self._trackers}
 
+    def remove(self, mac: str) -> None:
+        """Remove the tracker for a specific MAC."""
+        self._trackers.pop(mac, None)
+
     def prune_stale(self, max_age_s: float = 300.0) -> list[str]:
         """Remove trackers not updated in max_age_s seconds. Returns pruned MACs."""
         now = time.time()

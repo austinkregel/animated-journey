@@ -154,6 +154,15 @@ class PositioningEngine:
         if not mac:
             return
 
+        event = data.get("event", "seen")
+        if event == "gone":
+            self._observations.pop(mac, None)
+            closed = self._path_recorder.close_path_for_mac(mac)
+            if closed:
+                await self._path_recorder.save_path(closed)
+            self._kalman.remove(mac)
+            return
+
         node_id = data.get("node_id") or _node_id_from_topic(topic)
         rssi = data.get("rssi")
         if node_id is None or rssi is None:
@@ -212,7 +221,27 @@ class PositioningEngine:
         tri_input = [(o["node_id"], o["rssi"]) for o in unique_obs]
 
         known_nodes = {nid for nid, _ in tri_input if nid in self._node_positions}
+
+        timestamp = max(o["timestamp"] for o in unique_obs)
+
         if len(known_nodes) < 2:
+            # Single node: place at the node's position with low accuracy so
+            # the device is still tracked and visible.
+            if known_nodes:
+                nid = next(iter(known_nodes))
+                nx, ny, nz = self._node_positions[nid]
+            else:
+                nx, ny, nz = 0.0, 0.0, 0.0
+            accuracy = 99.0
+            sx, sy, sz, svx, svy, svz = self._kalman.update(
+                mac, nx, ny, nz, accuracy, timestamp,
+            )
+            self._path_recorder.record_point(
+                mac, sx, sy, sz, svx, svy, svz, timestamp, signal_types,
+            )
+            await self._publish_position(
+                mac, sx, sy, sz, svx, svy, svz, accuracy, timestamp, signal_types,
+            )
             return
 
         # Use advertised TX power if consistently reported
@@ -228,7 +257,6 @@ class PositioningEngine:
             return
 
         x, y, z, accuracy = position
-        timestamp = max(o["timestamp"] for o in unique_obs)
 
         sx, sy, sz, svx, svy, svz = self._kalman.update(mac, x, y, z, accuracy, timestamp)
 

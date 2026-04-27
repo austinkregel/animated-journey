@@ -84,6 +84,14 @@ flash_size_for_target() {
     esac
 }
 
+# OTA data partition offset varies by partition table
+ota_data_offset() {
+    case "$1" in
+        scanner-p4) echo "0x810000" ;;
+        *)          echo "0x3d0000" ;;
+    esac
+}
+
 monitor_boot_log() {
     [[ "$MONITOR" == true ]] || return 0
 
@@ -250,8 +258,9 @@ else
     echo "  Bootloader    -> ${BOOT_OFFSET}"
     echo "  Partition table -> 0x8000"
     echo "  App binary    -> 0x10000"
+    OTA_DATA_OFFSET=$(ota_data_offset "$TARGET")
     if [[ -f "$OTA_DATA" ]]; then
-        echo "  OTA data      -> 0x3d0000"
+        echo "  OTA data      -> ${OTA_DATA_OFFSET}"
     else
         echo "  OTA data      -> skipped (ota_data_initial.bin not found)"
     fi
@@ -271,7 +280,7 @@ else
     )
 
     if [[ -f "$OTA_DATA" ]]; then
-        FLASH_ARGS+=(0x3d0000 "$OTA_DATA")
+        FLASH_ARGS+=("$OTA_DATA_OFFSET" "$OTA_DATA")
     fi
 
     python3 -m esptool "${FLASH_ARGS[@]}"

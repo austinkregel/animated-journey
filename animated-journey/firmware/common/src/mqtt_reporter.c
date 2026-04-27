@@ -1,9 +1,11 @@
 #include <string.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <inttypes.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "mqtt_client.h"
 #include "config.h"
 #include "mqtt_reporter.h"
@@ -11,7 +13,11 @@
 
 static const char *TAG = "mqtt_reporter";
 
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+#define MSG_QUEUE_SIZE 256
+#else
 #define MSG_QUEUE_SIZE 128
+#endif
 #define MSG_MAX_LEN    512
 #define TOPIC_MAX_LEN  128
 
@@ -25,7 +31,7 @@ static esp_mqtt_client_handle_t s_client = NULL;
 static bool s_connected = false;
 static char s_node_id[32] = {0};
 
-static mqtt_msg_t s_msg_queue[MSG_QUEUE_SIZE];
+static mqtt_msg_t *s_msg_queue = NULL;
 static int s_queue_head = 0;
 static int s_queue_tail = 0;
 static int s_queue_count = 0;
@@ -137,6 +143,19 @@ void mqtt_reporter_init(const mqtt_reporter_config_t *config)
     s_queue_mutex = xSemaphoreCreateMutex();
     configASSERT(s_queue_mutex);
 
+    s_msg_queue = heap_caps_malloc(MSG_QUEUE_SIZE * sizeof(mqtt_msg_t),
+                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_msg_queue) {
+        s_msg_queue = malloc(MSG_QUEUE_SIZE * sizeof(mqtt_msg_t));
+    }
+    if (!s_msg_queue) {
+        ESP_LOGE(TAG, "Failed to allocate msg queue (%u x %u = %u bytes) -- MQTT disabled",
+                 (unsigned)MSG_QUEUE_SIZE, (unsigned)sizeof(mqtt_msg_t),
+                 (unsigned)(MSG_QUEUE_SIZE * sizeof(mqtt_msg_t)));
+        return;
+    }
+    memset(s_msg_queue, 0, MSG_QUEUE_SIZE * sizeof(mqtt_msg_t));
+
     strncpy(s_node_id, config->node_id, sizeof(s_node_id) - 1);
 
     char uri[128];
@@ -217,13 +236,18 @@ void mqtt_reporter_publish_scan(const scan_result_t *result)
                  s_node_id, type_str, timestamp_s);
     } else if (result->type == SCAN_BLE_ADV) {
         const ble_adv_t *adv = (const ble_adv_t *)result;
+        const char *event_str = (adv->event == BLE_EVENT_GONE) ? "gone" : "seen";
         snprintf(payload, sizeof(payload),
                  "{\"mac\":\"%s\",\"rssi\":%d,\"name\":\"%.*s\","
                  "\"addr_type\":%u,\"adv_type\":%u,\"tx_power\":%d,"
+                 "\"seen_count\":%"PRIu32",\"first_seen\":%.3f,"
+                 "\"event\":\"%s\","
                  "\"node_id\":\"%s\",\"type\":\"%s\",\"timestamp\":%.3f}",
                  mac_str, result->rssi,
                  adv->name_len, adv->name,
                  adv->addr_type, adv->adv_type, adv->tx_power,
+                 adv->seen_count, adv->first_seen_s,
+                 event_str,
                  s_node_id, type_str, timestamp_s);
     } else {
         snprintf(payload, sizeof(payload),
@@ -259,10 +283,12 @@ void mqtt_reporter_publish_status(const node_status_t *status)
     snprintf(payload, sizeof(payload),
              "{\"node_id\":\"%s\",\"uptime\":%"PRIu32",\"free_heap\":%"PRIu32","
              "\"wifi_rssi\":%d,\"fw_version\":\"%s\","
-             "\"probes\":%"PRIu32",\"ble\":%"PRIu32",\"beacons\":%"PRIu32"}",
+             "\"probes\":%"PRIu32",\"ble\":%"PRIu32",\"beacons\":%"PRIu32","
+             "\"ble_active\":%"PRIu32"}",
              status->node_id, status->uptime_s, status->free_heap,
              status->wifi_rssi, status->fw_version,
-             status->probe_count, status->ble_count, status->beacon_count);
+             status->probe_count, status->ble_count, status->beacon_count,
+             status->ble_active);
 
     if (s_connected) {
         esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 1);
@@ -325,8 +351,11 @@ void mqtt_reporter_publish_discovery(const char *node_id, const char *model)
         return;
     }
 
-    publish_discovery_sensor(node_id, model, "ble", "BLE Advertisements",
+    publish_discovery_sensor(node_id, model, "ble", "BLE Unique Total",
         "{{ value_json.ble }}", NULL, NULL, NULL);
+
+    publish_discovery_sensor(node_id, model, "ble_active", "BLE Active Devices",
+        "{{ value_json.ble_active }}", NULL, NULL, NULL);
 
     publish_discovery_sensor(node_id, model, "probes", "WiFi Probes",
         "{{ value_json.probes }}", NULL, NULL, NULL);
@@ -374,7 +403,7 @@ void mqtt_reporter_publish_discovery(const char *node_id, const char *model)
         }
     }
 
-    ESP_LOGI(TAG, "Published HA MQTT auto-discovery for node %s (7 sensors + 1 button)", node_id);
+    ESP_LOGI(TAG, "Published HA MQTT auto-discovery for node %s (8 sensors + 1 button)", node_id);
 }
 
 bool mqtt_reporter_is_connected(void)

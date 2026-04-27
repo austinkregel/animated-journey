@@ -1,6 +1,6 @@
 name: animated-journey Mesh
 description: Passive RF scanning mesh for neighborhood device mapping
-version: "0.4.2"
+version: "0.5.0"
 slug: animated-journey-mesh
 url: https://github.com/austinkregel/animated-journey
 arch:
