@@ -74,16 +74,24 @@ Fallback: C6_U0RXD / C6_U0TXD / C6_IO9 --> J3 (1x4 header) for UART recovery
 
 ## Bill of materials (net-level)
 
+Reference designators below reflect the **as-built schematic** (they differ from
+an earlier draft: USB-C is J1, the P2-mating header is J2, UART fallback is J3).
+
 | Ref | Part | Purpose |
 |-----|------|---------|
-| **J1** | 2×13 female socket, 2.54 mm | Mates P4 header **P2** (keyed). Connected pins: `C6_IO12`, `C6_IO13`, `GND`, `C6_U0RXD`, `C6_U0TXD`, `C6_IO9`. All other P2 pins = no-connect. |
-| **J2** | USB-C receptacle, USB 2.0 (16-pin) | Host connection. |
-| **D1** | USBLC6-2SC6 | Low-capacitance ESD clamp on D+/D-. |
+| **J1** | USB-C receptacle, USB 2.0 (`Connector:USB_C_Receptacle_USB2.0_14P`) | Host connection. |
+| **J2** | 2×13 female socket, 2.54 mm (`Conn_02x13_Odd_Even`) | Mates P4 header **P2** (keyed). Connected pins: 21=`C6_IO12`, 23=`C6_IO13`, 20=`C6_U0RXD`, 22=`C6_U0TXD`, 24=`C6_IO9`, 1=`VCC_5V`, 5=`VCC_3V3`, 25/26=`GND`. All other 17 P2 pins = no-connect. |
+| **D1, D3** | Low-capacitance TVS, `ESD9B5.0ST5G` (~0.35 pF) — one per data line to GND | ESD clamp on D+/D-. (Replaces the originally-specified USBLC6-2SC6: the array symbol could not be wired through Konnect's engine, and two single-line low-cap TVS are electrically equivalent for full-speed USB.) |
 | **R1, R2** | 5.1 kΩ | CC1/CC2 pulldowns (Rd) so a C-to-C cable enumerates. |
 | **R3** | 1 kΩ | Power LED current limit. |
 | **D2** | LED | Power indicator off header **3V3** (lit = P4/C6 powered). |
-| **J3** | 1×4 header, 2.54 mm | UART fallback: `C6_U0RXD`, `C6_U0TXD`, `C6_IO9`, `GND`. |
-| **JP1** | Solder jumper, normally **open** | Optional VBUS→header-5V to power the P4 from this cable. |
+| **J3** | 1×4 header, 2.54 mm (`Conn_01x04`) | UART fallback: `C6_U0RXD`, `C6_U0TXD`, `C6_IO9`, `GND`. |
+| **C1** | 100 nF | VBUS decoupling (used only when JP1 closed). |
+| **JP1** | Solder jumper, normally **open** (`SolderJumper_2_Open`) | Optional VBUS→header-5V to power the P4 from this cable. |
+
+**Build status (2026-07-20):** schematic captured in
+`devices/c6-nano-flasher/` and **ERC-clean (0 errors, 0 warnings)**. Footprints
+not yet assigned; PCB layout is the next phase.
 
 ### Wiring
 - `USB D+ (J2) → C6_IO13`
