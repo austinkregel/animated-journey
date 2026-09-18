@@ -19,6 +19,7 @@ idf_component_register(
         esp_https_ota
         esp_http_client
         app_update
+        esp_app_format
         esp_timer
-
+        esp_driver_tsens
 )

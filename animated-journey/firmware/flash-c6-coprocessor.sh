@@ -19,13 +19,13 @@ fi
 
 usage() {
     cat <<EOF
-Usage: $0 --port <port> [options]
+Usage: $0 [options]
 
 Build and flash the ESP-Hosted slave firmware for the onboard ESP32-C6
 co-processor used by scanner-p4 over SDIO.
 
-Required:
-  --port <port>       C6 serial port, not the P4 host serial port
+Options:
+  --port <port>       C6 serial port (auto-detected if omitted)
 
 Options:
   --build-dir <path>  Build tree containing flash_args (for --flash-only)
@@ -252,8 +252,32 @@ if [[ "$BUILD_ONLY" == true && "$FLASH_ONLY" == true ]]; then
 fi
 
 if [[ "$BUILD_ONLY" != true && -z "$PORT" ]]; then
-    echo "Error: --port is required unless --build-only is used."
-    usage
+    echo "No --port specified, auto-detecting..."
+    autodetect_port() {
+        local ports=()
+        local candidates=( /dev/cu.usbmodem* /dev/cu.usbserial-* /dev/ttyUSB* /dev/ttyACM* )
+        for p in "${candidates[@]}"; do
+            [[ -e "$p" ]] && ports+=("$p")
+        done
+        if [[ ${#ports[@]} -eq 0 ]]; then
+            echo "Error: No serial ports detected." >&2; exit 1
+        elif [[ ${#ports[@]} -eq 1 ]]; then
+            echo "${ports[0]}"
+        else
+            echo "Multiple serial ports detected:" >&2
+            local i=1
+            for p in "${ports[@]}"; do echo "  $i) $p" >&2; ((i++)); done
+            echo "" >&2
+            read -rp "Select port [1-${#ports[@]}]: " choice
+            if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#ports[@]} )); then
+                echo "${ports[$((choice-1))]}"
+            else
+                echo "Error: Invalid selection." >&2; exit 1
+            fi
+        fi
+    }
+    PORT=$(autodetect_port)
+    echo "Using port: $PORT"
 fi
 
 if [[ "$FLASH_ONLY" != true ]]; then

@@ -10,6 +10,10 @@
 #include "esp_heap_caps.h"
 #include "esp_netif_sntp.h"
 #include "esp_system.h"
+#include "esp_chip_info.h"
+#include "esp_idf_version.h"
+#include "esp_clk_tree.h"
+#include "driver/temperature_sensor.h"
 #include "nvs_flash.h"
 #include "config.h"
 #include "nvs_config.h"
@@ -19,10 +23,12 @@
 #include "ethernet.h"
 #include "led_ctrl.h"
 #include "audio_beep.h"
+#include "c6_diag.h"
 
 #define STATUS_LED_GPIO  2
 
 static const char *TAG = "main";
+static temperature_sensor_handle_t s_temp_sensor = NULL;
 
 extern bool     ble_scanner_init(void);
 extern bool     ble_scanner_start(void);
@@ -96,6 +102,21 @@ static void on_ip_obtained(void)
     xTaskCreate(network_services_task, "net_svc_init", 6144, NULL, 5, NULL);
 }
 
+static const char *chip_model_name(esp_chip_model_t model)
+{
+    switch (model) {
+    case CHIP_ESP32:   return "ESP32";
+    case CHIP_ESP32S2: return "ESP32-S2";
+    case CHIP_ESP32S3: return "ESP32-S3";
+    case CHIP_ESP32C3: return "ESP32-C3";
+    case CHIP_ESP32C2: return "ESP32-C2";
+    case CHIP_ESP32C6: return "ESP32-C6";
+    case CHIP_ESP32H2: return "ESP32-H2";
+    case CHIP_ESP32P4: return "ESP32-P4";
+    default:           return "Unknown";
+    }
+}
+
 static void publish_status(void)
 {
     node_status_t status = {0};
@@ -106,6 +127,28 @@ static void publish_status(void)
     status.ble_count = ble_scanner_unique_total();
     status.ble_active = (uint32_t)ble_scanner_active_count();
     status.wifi_rssi = 0;
+
+    if (s_temp_sensor) {
+        temperature_sensor_get_celsius(s_temp_sensor, &status.chip_temp_c);
+    }
+
+    status.min_free_heap = (uint32_t)esp_get_minimum_free_heap_size();
+    status.psram_free = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    status.psram_total = (uint32_t)heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+    status.reset_reason = (uint8_t)esp_reset_reason();
+
+    esp_chip_info_t ci;
+    esp_chip_info(&ci);
+    status.cpu_count = ci.cores;
+    strncpy(status.chip_model, chip_model_name(ci.model), sizeof(status.chip_model) - 1);
+
+    uint32_t cpu_hz = 0;
+    esp_clk_tree_src_get_freq_hz(SOC_MOD_CLK_CPU, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &cpu_hz);
+    status.cpu_freq_mhz = (uint16_t)(cpu_hz / 1000000);
+
+    strncpy(status.idf_version, esp_get_idf_version(), sizeof(status.idf_version) - 1);
+
+    c6_diag_fill(&status);
 
     mqtt_reporter_publish_status(&status);
 }
@@ -201,6 +244,17 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "animated-journey Mesh Scanner (P4) v%s", FW_VERSION);
 
+    /* Internal die temperature sensor */
+    temperature_sensor_config_t temp_cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(20, 100);
+    if (temperature_sensor_install(&temp_cfg, &s_temp_sensor) == ESP_OK) {
+        temperature_sensor_enable(s_temp_sensor);
+        float t;
+        temperature_sensor_get_celsius(s_temp_sensor, &t);
+        ESP_LOGI(TAG, "Chip temperature at boot: %.1f C", t);
+    } else {
+        ESP_LOGW(TAG, "Temperature sensor init failed");
+    }
+
     led_ctrl_init(STATUS_LED_GPIO);
 
     esp_err_t audio_ret = audio_beep_init();
@@ -229,6 +283,10 @@ void app_main(void)
         ESP_LOGW(TAG, "Ethernet driver failed (%s) -- running in BLE scan-only mode",
                  esp_err_to_name(eth_ret));
     }
+
+    /* Subscribe to ESP-Hosted events before the C6 link comes up so we catch
+     * its init/reset-reason and transport transitions. */
+    c6_diag_init();
 
     /* Initialize BLE scanner (via esp_hosted C6 slave HCI transport) */
     if (!ble_scanner_init()) {

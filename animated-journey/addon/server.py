@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import time
+from collections import deque
 from pathlib import Path
 
 from aiohttp import web
@@ -17,7 +18,38 @@ logger = logging.getLogger(__name__)
 
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 INGRESS_PATH = os.environ.get("INGRESS_PATH", "")
-DATA_DIR = Path("/data")
+
+
+# Persistent add-on state lives at /data in the HA container, but that path is
+# read-only (or absent) when running from a checkout for dev. Honor a DATA_DIR
+# override, else use /data when it's writable, else a repo-local .dev-data dir.
+def _resolve_data_dir() -> Path:
+    env = os.environ.get("DATA_DIR")
+    if env:
+        return Path(env)
+    container = Path("/data")
+    if container.is_dir() and os.access(container, os.W_OK):
+        return container
+    return Path(__file__).resolve().parent.parent / ".dev-data"
+
+
+DATA_DIR = _resolve_data_dir()
+
+
+# Frontend assets live at /app/frontend in the container image, but when this
+# server is run straight from a checkout (`python3 -m addon.server`) for a fast
+# dev loop, fall back to the repo-relative frontend/ dir.
+def _resolve_frontend_root() -> Path:
+    env = os.environ.get("FRONTEND_DIR")
+    if env:
+        return Path(env)
+    container = Path("/app/frontend")
+    if container.is_dir():
+        return container
+    return Path(__file__).resolve().parent.parent / "frontend"
+
+
+FRONTEND_ROOT = _resolve_frontend_root()
 
 # Mark a node offline if we haven't heard a status from it within 3x the
 # firmware's STATUS_REPORT_INTERVAL_MS (30s). 90s gives us tolerance for
@@ -30,6 +62,83 @@ def _is_node_online(status: dict) -> bool:
     if last_seen is None:
         return False
     return (time.time() - last_seen) < NODE_STALE_TIMEOUT_S
+
+
+# esp_reset_reason_t -> human label, for the dev dashboard.
+RESET_REASONS = {
+    0: "unknown", 1: "power-on", 2: "external", 3: "software", 4: "panic",
+    5: "int-wdt", 6: "task-wdt", 7: "other-wdt", 8: "deep-sleep", 9: "brownout",
+    10: "sdio", 11: "usb", 12: "jtag", 13: "efuse", 14: "pwr-glitch",
+    15: "cpu-lockup",
+}
+
+
+def _record_node_status(app, node_id: str, payload, now: float):
+    """Store a node's latest status, keeping all diagnostic fields, and track
+    when each distinct firmware git hash first appeared (for the rollout target).
+    Module-level so it can be unit-tested without the full MQTT/HA stack."""
+    statuses = app["node_statuses"]
+    if isinstance(payload, dict):
+        record = dict(payload)
+        record["firmware_version"] = payload.get(
+            "fw_version", payload.get("firmware_version", ""))
+        record["ip"] = payload.get("ip", "")
+        record["last_seen"] = now
+        statuses[node_id] = record
+
+        fw_git = payload.get("fw_git")
+        if fw_git:
+            first_seen = app.setdefault("fw_git_first_seen", {})
+            first_seen.setdefault(fw_git, now)
+    else:
+        statuses.setdefault(node_id, {})["last_seen"] = now
+
+
+def _current_target_git(app) -> str | None:
+    """The most recently *introduced* firmware git hash across all nodes.
+
+    Whichever distinct hash was first seen latest is treated as the rollout
+    target; nodes still reporting a different hash are considered out of date.
+    Held in memory, so it re-derives from live status reports after a restart.
+    """
+    first_seen = app.get("fw_git_first_seen", {})
+    if not first_seen:
+        return None
+    return max(first_seen, key=first_seen.get)
+
+
+# --- Live message feed (dev dashboard) -------------------------------------
+FEED_MAX = 400          # ring-buffer depth
+FEED_PAYLOAD_MAX = 400  # per-message payload preview length
+
+
+def _feed_kind(topic: str) -> str:
+    if "/scan/" in topic:
+        return "scan"
+    if topic.endswith("/status"):
+        return "status"
+    if "/cmd/" in topic:
+        return "cmd"
+    return "other"
+
+
+def _record_feed(app, topic: str, payload, now: float):
+    """Append one MQTT message to the in-memory live feed."""
+    feed = app.get("feed")
+    if feed is None:
+        return
+    if isinstance(payload, (dict, list)):
+        text = json.dumps(payload, separators=(",", ":"))
+    elif isinstance(payload, (bytes, bytearray)):
+        text = payload.decode("utf-8", errors="replace")
+    else:
+        text = str(payload)
+    if len(text) > FEED_PAYLOAD_MAX:
+        text = text[:FEED_PAYLOAD_MAX] + "…"
+    seq = app.get("feed_seq", 0) + 1
+    app["feed_seq"] = seq
+    feed.append({"seq": seq, "ts": now, "topic": topic,
+                 "kind": _feed_kind(topic), "payload": text})
 CONFIG_FILE = DATA_DIR / "config.json"
 FIRMWARE_DIR = DATA_DIR / "firmware"
 OVERLAY_DIR = DATA_DIR / "overlays"
@@ -252,6 +361,101 @@ async def handle_get_nodes(request: web.Request) -> web.Response:
     return web.json_response({"nodes": nodes})
 
 
+async def handle_dev_nodes(request: web.Request) -> web.Response:
+    """Full-fidelity node health for the dev dashboard.
+
+    Unlike /api/nodes (which joins against placed nodes in config.json), this
+    reports every node we've heard a status from, with all firmware/diagnostic
+    fields and a computed up-to-date flag against the rollout target hash.
+    """
+    app = request.app
+    statuses = app.get("node_statuses", {})
+    target = _current_target_git(app)
+    now = time.time()
+
+    nodes = []
+    for nid, s in statuses.items():
+        fw_git = s.get("fw_git", "") or ""
+        last_seen = s.get("last_seen")
+        reset_reason = s.get("reset_reason")
+        nodes.append({
+            "node_id": nid,
+            "online": _is_node_online(s),
+            "last_seen": last_seen,
+            "age_s": (now - last_seen) if last_seen else None,
+            "fw_version": s.get("firmware_version", ""),
+            "fw_git": fw_git,
+            "dirty": fw_git.endswith("-dirty"),
+            "up_to_date": bool(fw_git) and target is not None and fw_git == target,
+            "chip_model": s.get("chip_model", ""),
+            "chip_temp": s.get("chip_temp"),
+            "uptime": s.get("uptime"),
+            "free_heap": s.get("free_heap"),
+            "min_free_heap": s.get("min_free_heap"),
+            "psram_free": s.get("psram_free"),
+            "psram_total": s.get("psram_total"),
+            "wifi_rssi": s.get("wifi_rssi"),
+            "reset_reason": reset_reason,
+            "reset_reason_name": RESET_REASONS.get(reset_reason),
+            "cpu_freq": s.get("cpu_freq"),
+            "cpu_count": s.get("cpu_count"),
+            "idf_version": s.get("idf_version", ""),
+            # Coprocessor (C6) diagnostics -- present only on P4 nodes.
+            "c6_fw": s.get("c6_fw", ""),
+            "c6_chip": s.get("c6_chip", ""),
+            "c6_rpc": s.get("c6_rpc", ""),
+            "c6_reset": s.get("c6_reset"),
+            "c6_reset_name": RESET_REASONS.get(s.get("c6_reset")),
+            "c6_link": s.get("c6_link"),
+            "c6_reboots": s.get("c6_reboots"),
+            "ble": s.get("ble"),
+            "ble_active": s.get("ble_active"),
+            "beacons": s.get("beacons"),
+            "probes": s.get("probes"),
+        })
+
+    nodes.sort(key=lambda n: n["node_id"])
+    return web.json_response({
+        "target_git": target,
+        "server_time": now,
+        "node_count": len(nodes),
+        "online_count": sum(1 for n in nodes if n["online"]),
+        "stale_timeout_s": NODE_STALE_TIMEOUT_S,
+        "nodes": nodes,
+    })
+
+
+async def handle_dev_feed(request: web.Request) -> web.Response:
+    """Incremental live feed of MQTT messages the nodes post.
+
+    Pass ?since=<cursor> to get only messages newer than a prior poll; omit it
+    (or -1) to get the whole current buffer. Entries are ascending by seq.
+    """
+    app = request.app
+    feed = app.get("feed")
+    try:
+        since = int(request.query.get("since", "-1"))
+    except ValueError:
+        since = -1
+    entries = list(feed) if feed else []
+    if since >= 0:
+        entries = [e for e in entries if e["seq"] > since]
+    return web.json_response({
+        "cursor": app.get("feed_seq", 0),
+        "server_time": time.time(),
+        "count": len(entries),
+        "entries": entries,
+    })
+
+
+async def handle_dev_dashboard(request: web.Request) -> web.Response:
+    html_path = FRONTEND_ROOT / "dev-dashboard.html"
+    if not html_path.exists():
+        raise web.HTTPNotFound(text=f"dev-dashboard.html not found under {FRONTEND_ROOT}")
+    html = html_path.read_text().replace("{{INGRESS_PATH}}", INGRESS_PATH)
+    return web.Response(text=html, content_type="text/html")
+
+
 async def handle_ota_update(request: web.Request) -> web.Response:
     data = await request.json()
     node_id = data.get("node_id")
@@ -361,8 +565,21 @@ async def handle_llm_query(request: web.Request) -> web.Response:
 
 async def start_background_tasks(app: web.Application):
     mqtt_config = None
+
+    # Env override wins, so a local dev run is just:
+    #   MQTT_HOST=192.168.3.52 python3 -m addon.server
+    env_host = os.environ.get("MQTT_HOST")
+    if env_host:
+        mqtt_config = {
+            "host": env_host,
+            "port": int(os.environ.get("MQTT_PORT", 1883)),
+            "username": os.environ.get("MQTT_USER", ""),
+            "password": os.environ.get("MQTT_PASS", ""),
+        }
+        logger.info("Using MQTT config from environment (host=%s)", env_host)
+
     addon_options = _load_addon_options()
-    if addon_options.get("mqtt_host"):
+    if not mqtt_config and addon_options.get("mqtt_host"):
         mqtt_config = {
             "host": addon_options["mqtt_host"],
             "port": int(addon_options.get("mqtt_port", 1883)),
@@ -390,6 +607,8 @@ async def start_background_tasks(app: web.Application):
     mqtt = mqtt_client.MQTTClient()
     app["mqtt"] = mqtt
     app["node_statuses"] = {}
+    app["feed"] = deque(maxlen=FEED_MAX)
+    app["feed_seq"] = 0
 
     config = _load_config()
     engine = PositioningEngine(ha_api=ha_api, config=config)
@@ -431,17 +650,11 @@ async def start_background_tasks(app: web.Application):
         if len(parts) < 4 or parts[3] != "status":
             return
         node_id = parts[2]
-        statuses = app["node_statuses"]
         now = time.time()
-        if isinstance(payload, dict):
-            statuses[node_id] = {
-                "firmware_version": payload.get("fw_version", payload.get("firmware_version", "")),
-                "ip": payload.get("ip", ""),
-                "uptime": payload.get("uptime"),
-                "last_seen": now,
-            }
-        else:
-            statuses.setdefault(node_id, {})["last_seen"] = now
+        # Keep the full diagnostic payload (chip_temp, heap, psram, fw_git,
+        # reset_reason, ...) so the dev dashboard can surface it, and track the
+        # firmware git hash for rollout-target detection.
+        _record_node_status(app, node_id, payload, now)
 
         _auto_discover_node(node_id, payload if isinstance(payload, dict) else {})
 
@@ -454,8 +667,13 @@ async def start_background_tasks(app: web.Application):
             job["progress"] = ota_progress
             job["status"] = payload.get("ota_status", "deploying")
 
+    async def _handle_feed(topic, payload):
+        _record_feed(app, topic, payload, time.time())
+
     if mqtt_config:
         mqtt.register_handler("animated-journey/nodes/#", _handle_node_status)
+        # Records every animated-journey message (scan + status) into the live feed.
+        mqtt.register_handler("animated-journey/#", _handle_feed)
         app["mqtt_task"] = asyncio.create_task(mqtt.connect(mqtt_config))
         await engine.start(mqtt)
     else:
@@ -496,6 +714,9 @@ def create_app() -> web.Application:
     app.router.add_get(f"{prefix}/api/settings", handle_get_settings)
     app.router.add_post(f"{prefix}/api/settings", handle_post_settings)
     app.router.add_get(f"{prefix}/api/nodes", handle_get_nodes)
+    app.router.add_get(f"{prefix}/dev-dashboard", handle_dev_dashboard)
+    app.router.add_get(f"{prefix}/api/dev/nodes", handle_dev_nodes)
+    app.router.add_get(f"{prefix}/api/dev/feed", handle_dev_feed)
     app.router.add_post(f"{prefix}/api/nodes/{{node_id}}/restart", handle_node_restart)
     app.router.add_get(f"{prefix}/api/firmware/{{target}}.bin", handle_firmware_download)
     app.router.add_post(f"{prefix}/api/firmware/upload", handle_firmware_upload)

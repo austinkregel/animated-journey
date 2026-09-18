@@ -17,7 +17,7 @@ Targets:
   scanner-p4    ESP32-P4-NANO nodes (your primary boards)
 
 Required:
-  --port <port>     Serial port (e.g. /dev/ttyACM0)
+  --port <port>     Serial port (auto-detected if omitted; e.g. /dev/ttyACM0)
 
 Options:
   --app-only        Flash only the app partition (skip bootloader/partition table)
@@ -31,7 +31,7 @@ Options:
                     Serial monitor timeout in seconds (default: 45)
   --monitor-log <path>
                     Boot log output path (default: logs/<target>-<timestamp>.log)
-  --node-id <id>    Node identifier for NVS provisioning
+  --node-id <id>    Node identifier (optional; auto-generated from MAC if omitted)
   --mqtt-host <ip>  MQTT broker address for NVS provisioning
   --mqtt-port <n>   MQTT broker port (default: 1883)
   --mqtt-user <u>   MQTT username
@@ -40,19 +40,56 @@ Options:
   --wifi-pass <p>   WiFi password
 
 Examples:
-  # Full flash of P4 node (first time):
+  # Simplest: auto-detect port, auto-generate node ID:
+  $0 scanner-p4 --mqtt-host 192.168.1.100
+
+  # Explicit port and custom node name:
   $0 scanner-p4 --port /dev/ttyACM0 \\
       --node-id living-room-01 --mqtt-host 192.168.1.100
 
   # App-only update (bootloader/partition table already flashed):
-  $0 scanner-p4 --port /dev/ttyACM0 --app-only --no-provision
+  $0 scanner-p4 --app-only --no-provision
 
   # S3 node with WiFi credentials:
-  $0 scanner-s3 --port /dev/ttyUSB0 \\
-      --node-id office-01 --mqtt-host 192.168.1.100 \\
+  $0 scanner-s3 --mqtt-host 192.168.1.100 \\
       --wifi-ssid MyNetwork --wifi-pass MyPassword
 EOF
     exit 1
+}
+
+# Auto-detect serial ports for ESP devices.
+# Looks for /dev/cu.usbmodem* (USB CDC/JTAG) and /dev/cu.usbserial-* (USB-UART bridges).
+# If exactly one is found, returns it. If multiple, lists them and exits.
+autodetect_port() {
+    local ports=()
+    local candidates
+    # macOS uses /dev/cu.* ; Linux uses /dev/ttyUSB* and /dev/ttyACM*
+    candidates=( /dev/cu.usbmodem* /dev/cu.usbserial-* /dev/ttyUSB* /dev/ttyACM* )
+    for p in "${candidates[@]}"; do
+        [[ -e "$p" ]] && ports+=("$p")
+    done
+
+    if [[ ${#ports[@]} -eq 0 ]]; then
+        echo "Error: No serial ports detected. Plug in your device and try again." >&2
+        exit 1
+    elif [[ ${#ports[@]} -eq 1 ]]; then
+        echo "${ports[0]}"
+    else
+        echo "Multiple serial ports detected:" >&2
+        local i=1
+        for p in "${ports[@]}"; do
+            echo "  $i) $p" >&2
+            ((i++))
+        done
+        echo "" >&2
+        read -rp "Select port [1-${#ports[@]}]: " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#ports[@]} )); then
+            echo "${ports[$((choice-1))]}"
+        else
+            echo "Error: Invalid selection." >&2
+            exit 1
+        fi
+    fi
 }
 
 # Chip type from target name
@@ -209,7 +246,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ -z "$PORT" ]] && { echo "Error: --port is required"; usage; }
+if [[ -z "$PORT" ]]; then
+    echo "No --port specified, auto-detecting..."
+    PORT=$(autodetect_port)
+    echo "Using port: $PORT"
+fi
 
 ARTIFACT_DIR="${OUT_DIR}/${TARGET}"
 APP_BIN="${ARTIFACT_DIR}/${TARGET}.bin"
@@ -296,13 +337,16 @@ if [[ "$NO_PROVISION" == true ]]; then
     exit 0
 fi
 
-if [[ -z "$NODE_ID" || -z "$MQTT_HOST" ]]; then
+if [[ -z "$MQTT_HOST" ]]; then
     echo ""
-    echo "NVS not provisioned. To set node config, re-run with --node-id and --mqtt-host,"
-    echo "or run the provisioning tool directly:"
+    echo "NVS not provisioned (no --mqtt-host). The node will auto-generate its ID"
+    echo "from the hardware MAC, but needs MQTT config to connect."
     echo ""
-    echo "  python3 tools/provision.py --port ${PORT} --chip ${CHIP} \\"
-    echo "      --node-id <name> --mqtt-host <ip>"
+    echo "To provision, re-run with at minimum --mqtt-host:"
+    echo ""
+    echo "  $0 $TARGET --port ${PORT} --mqtt-host <ip>"
+    echo ""
+    echo "  --node-id is optional; firmware auto-generates 'node-<hash>' from MAC if omitted."
     monitor_boot_log
     exit 0
 fi
@@ -313,10 +357,10 @@ echo "=== Provisioning NVS ==="
 PROVISION_ARGS=(
     --port "$PORT"
     --chip "$CHIP"
-    --node-id "$NODE_ID"
     --mqtt-host "$MQTT_HOST"
     --mqtt-port "$MQTT_PORT"
 )
+[[ -n "$NODE_ID" ]]    && PROVISION_ARGS+=(--node-id "$NODE_ID")
 [[ -n "$MQTT_USER" ]]  && PROVISION_ARGS+=(--mqtt-user "$MQTT_USER")
 [[ -n "$MQTT_PASS" ]]  && PROVISION_ARGS+=(--mqtt-pass "$MQTT_PASS")
 [[ -n "$WIFI_SSID" ]]  && PROVISION_ARGS+=(--wifi-ssid "$WIFI_SSID")
@@ -325,5 +369,9 @@ PROVISION_ARGS=(
 python3 "${SCRIPT_DIR}/tools/provision.py" "${PROVISION_ARGS[@]}"
 
 echo ""
-echo "=== Done! Node '${NODE_ID}' is ready. ==="
+if [[ -n "$NODE_ID" ]]; then
+    echo "=== Done! Node '${NODE_ID}' is ready. ==="
+else
+    echo "=== Done! Node will auto-generate ID from MAC on first boot. ==="
+fi
 monitor_boot_log

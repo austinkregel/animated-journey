@@ -6,6 +6,8 @@
 #include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_mac.h"
+#include "esp_app_desc.h"
 #include "mqtt_client.h"
 #include "config.h"
 #include "mqtt_reporter.h"
@@ -13,12 +15,14 @@
 
 static const char *TAG = "mqtt_reporter";
 
-#if defined(CONFIG_IDF_TARGET_ESP32P4)
-#define MSG_QUEUE_SIZE 256
-#else
+/* Queue lives in PSRAM when available (see init), else internal RAM. PSRAM is
+ * not currently enabled on any target, so the depth must fit internal RAM:
+ * MSG_QUEUE_SIZE * sizeof(mqtt_msg_t) (~900B) must stay well under free heap at
+ * init. 128 * ~900B ~= 115KB fits the P4; 256 overflowed once MSG_MAX_LEN grew
+ * to 768 ("Failed to allocate msg queue -- MQTT disabled"). Bump only alongside
+ * enabling CONFIG_SPIRAM. */
 #define MSG_QUEUE_SIZE 128
-#endif
-#define MSG_MAX_LEN    512
+#define MSG_MAX_LEN    768
 #define TOPIC_MAX_LEN  128
 
 typedef struct {
@@ -30,6 +34,8 @@ typedef struct {
 static esp_mqtt_client_handle_t s_client = NULL;
 static bool s_connected = false;
 static char s_node_id[32] = {0};
+static char s_hw_mac[13] = {0};
+static char s_hw_mac_colons[18] = {0};
 
 static mqtt_msg_t *s_msg_queue = NULL;
 static int s_queue_head = 0;
@@ -158,6 +164,14 @@ void mqtt_reporter_init(const mqtt_reporter_config_t *config)
 
     strncpy(s_node_id, config->node_id, sizeof(s_node_id) - 1);
 
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_BASE);
+    snprintf(s_hw_mac, sizeof(s_hw_mac), "%02x%02x%02x%02x%02x%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    snprintf(s_hw_mac_colons, sizeof(s_hw_mac_colons), "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    ESP_LOGI(TAG, "Hardware MAC for HA identity: %s (node_id=%s)", s_hw_mac_colons, s_node_id);
+
     char uri[128];
     snprintf(uri, sizeof(uri), "mqtt://%s:%u", config->host, config->port);
 
@@ -280,15 +294,44 @@ void mqtt_reporter_publish_status(const node_status_t *status)
     snprintf(topic, sizeof(topic), "%s/nodes/%s/status",
              DEFAULT_MQTT_TOPIC_PREFIX, status->node_id);
 
-    snprintf(payload, sizeof(payload),
+    /* Build-time firmware identity: ESP-IDF auto-populates this from
+     * `git describe --always --tags --dirty` (e.g. "92e41fa-dirty") whenever
+     * PROJECT_VER/version.txt aren't set, giving each build a unique, dirty-aware
+     * hash the dev dashboard uses to tell which nodes need reflashing. */
+    const char *fw_git = esp_app_get_description()->version;
+
+    int n = snprintf(payload, sizeof(payload),
              "{\"node_id\":\"%s\",\"uptime\":%"PRIu32",\"free_heap\":%"PRIu32","
-             "\"wifi_rssi\":%d,\"fw_version\":\"%s\","
+             "\"wifi_rssi\":%d,\"fw_version\":\"%s\",\"fw_git\":\"%s\","
              "\"probes\":%"PRIu32",\"ble\":%"PRIu32",\"beacons\":%"PRIu32","
-             "\"ble_active\":%"PRIu32"}",
+             "\"ble_active\":%"PRIu32","
+             "\"chip_temp\":%.1f,\"min_free_heap\":%"PRIu32","
+             "\"psram_free\":%"PRIu32",\"psram_total\":%"PRIu32","
+             "\"reset_reason\":%u,\"cpu_freq\":%u,"
+             "\"cpu_count\":%u,\"idf_version\":\"%s\",\"chip_model\":\"%s\"",
              status->node_id, status->uptime_s, status->free_heap,
-             status->wifi_rssi, status->fw_version,
+             status->wifi_rssi, status->fw_version, fw_git,
              status->probe_count, status->ble_count, status->beacon_count,
-             status->ble_active);
+             status->ble_active,
+             status->chip_temp_c, status->min_free_heap,
+             status->psram_free, status->psram_total,
+             (unsigned)status->reset_reason, (unsigned)status->cpu_freq_mhz,
+             (unsigned)status->cpu_count, status->idf_version,
+             status->chip_model);
+
+    /* Coprocessor (C6) diagnostics -- only present on P4 nodes with a live C6. */
+    if (n > 0 && n < (int)sizeof(payload) && status->c6_fw[0]) {
+        n += snprintf(payload + n, sizeof(payload) - n,
+                 ",\"c6_fw\":\"%s\",\"c6_chip\":\"%s\",\"c6_rpc\":\"%s\","
+                 "\"c6_reset\":%u,\"c6_link\":%u,\"c6_reboots\":%"PRIu32,
+                 status->c6_fw, status->c6_chip, status->c6_rpc,
+                 (unsigned)status->c6_reset, (unsigned)status->c6_link,
+                 status->c6_reboots);
+    }
+
+    if (n > 0 && n < (int)sizeof(payload)) {
+        snprintf(payload + n, sizeof(payload) - n, "}");
+    }
 
     if (s_connected) {
         esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 1);
@@ -307,17 +350,17 @@ static void publish_discovery_sensor(const char *node_id, const char *model,
     char payload[MSG_MAX_LEN];
 
     snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/animated-journey_%s_%s/config", node_id, suffix);
+             "homeassistant/sensor/animated-journey_%s_%s/config", s_hw_mac, suffix);
 
     int n = snprintf(payload, sizeof(payload),
              "{\"name\":\"%s\","
              "\"state_topic\":\"%s/nodes/%s/status\","
              "\"value_template\":\"%s\","
-             "\"unique_id\":\"animated-journey_%s_%s\","
+             "\"unique_id\":\"aj_%s_%s\","
              "\"object_id\":\"aj_%s_%s\"",
              name_suffix,
              DEFAULT_MQTT_TOPIC_PREFIX, node_id, value_tpl,
-             node_id, suffix, node_id, suffix);
+             s_hw_mac, suffix, s_hw_mac, suffix);
 
     if (unit) {
         n += snprintf(payload + n, sizeof(payload) - n,
@@ -332,10 +375,11 @@ static void publish_discovery_sensor(const char *node_id, const char *model,
                       ",\"entity_category\":\"%s\"", entity_cat);
     }
     snprintf(payload + n, sizeof(payload) - n,
-             ",\"device\":{\"identifiers\":[\"animated-journey_%s\"],"
+             ",\"device\":{\"identifiers\":[\"aj_%s\"],"
              "\"name\":\"animated-journey %s\",\"model\":\"%s\","
-             "\"manufacturer\":\"animated-journey\"}}",
-             node_id, node_id, model);
+             "\"manufacturer\":\"animated-journey\","
+             "\"connections\":[[\"mac\",\"%s\"]]}}",
+             s_hw_mac, node_id, model, s_hw_mac_colons);
 
     if (s_connected) {
         esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 1);
@@ -375,26 +419,54 @@ void mqtt_reporter_publish_discovery(const char *node_id, const char *model)
     publish_discovery_sensor(node_id, model, "wifi_rssi", "WiFi RSSI",
         "{{ value_json.wifi_rssi }}", "dBm", "signal_strength", "diagnostic");
 
+    publish_discovery_sensor(node_id, model, "chip_temp", "Chip Temperature",
+        "{{ value_json.chip_temp }}", "\u00b0C", "temperature", "diagnostic");
+
+    publish_discovery_sensor(node_id, model, "min_heap", "Min Free Heap",
+        "{{ value_json.min_free_heap }}", "B", NULL, "diagnostic");
+
+    publish_discovery_sensor(node_id, model, "psram_free", "PSRAM Free",
+        "{{ value_json.psram_free }}", "B", NULL, "diagnostic");
+
+    publish_discovery_sensor(node_id, model, "psram_total", "PSRAM Total",
+        "{{ value_json.psram_total }}", "B", NULL, "diagnostic");
+
+    publish_discovery_sensor(node_id, model, "cpu_freq", "CPU Frequency",
+        "{{ value_json.cpu_freq }}", "MHz", "frequency", "diagnostic");
+
+    publish_discovery_sensor(node_id, model, "reset_reason", "Reset Reason",
+        "{{ value_json.reset_reason }}", NULL, NULL, "diagnostic");
+
+    publish_discovery_sensor(node_id, model, "idf_ver", "IDF Version",
+        "{{ value_json.idf_version }}", NULL, NULL, "diagnostic");
+
+    publish_discovery_sensor(node_id, model, "chip_model", "Chip Model",
+        "{{ value_json.chip_model }}", NULL, NULL, "diagnostic");
+
+    publish_discovery_sensor(node_id, model, "cpu_count", "CPU Cores",
+        "{{ value_json.cpu_count }}", NULL, NULL, "diagnostic");
+
     /* Button: Identify -- blinks the status LED for 10s */
     {
         char topic[TOPIC_MAX_LEN];
         char payload[MSG_MAX_LEN];
 
         snprintf(topic, sizeof(topic),
-                 "homeassistant/button/animated-journey_%s_identify/config", node_id);
+                 "homeassistant/button/animated-journey_%s_identify/config", s_hw_mac);
         snprintf(payload, sizeof(payload),
                  "{\"name\":\"Identify\","
                  "\"command_topic\":\"%s/nodes/%s/cmd/identify\","
-                 "\"unique_id\":\"animated-journey_%s_identify\","
+                 "\"unique_id\":\"aj_%s_identify\","
                  "\"object_id\":\"aj_%s_identify\","
                  "\"device_class\":\"identify\","
                  "\"entity_category\":\"config\","
-                 "\"device\":{\"identifiers\":[\"animated-journey_%s\"],"
+                 "\"device\":{\"identifiers\":[\"aj_%s\"],"
                  "\"name\":\"animated-journey %s\",\"model\":\"%s\","
-                 "\"manufacturer\":\"animated-journey\"}}",
+                 "\"manufacturer\":\"animated-journey\","
+                 "\"connections\":[[\"mac\",\"%s\"]]}}",
                  DEFAULT_MQTT_TOPIC_PREFIX, node_id,
-                 node_id, node_id,
-                 node_id, node_id, model);
+                 s_hw_mac, s_hw_mac,
+                 s_hw_mac, node_id, model, s_hw_mac_colons);
 
         if (s_connected) {
             esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 1);
@@ -403,7 +475,7 @@ void mqtt_reporter_publish_discovery(const char *node_id, const char *model)
         }
     }
 
-    ESP_LOGI(TAG, "Published HA MQTT auto-discovery for node %s (8 sensors + 1 button)", node_id);
+    ESP_LOGI(TAG, "Published HA MQTT auto-discovery for node %s (17 sensors + 1 button)", node_id);
 }
 
 bool mqtt_reporter_is_connected(void)

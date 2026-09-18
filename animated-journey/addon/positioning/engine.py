@@ -150,6 +150,15 @@ class PositioningEngine:
         except (json.JSONDecodeError, TypeError):
             return
 
+        # Periodic visibility log: report scan throughput every 100 messages.
+        # Helps verify scan data is reaching the addon without flooding logs.
+        self._scan_msg_count = getattr(self, "_scan_msg_count", 0) + 1
+        if self._scan_msg_count == 1 or self._scan_msg_count % 100 == 0:
+            logger.info(
+                "Scan messages received: %d (latest topic=%s)",
+                self._scan_msg_count, topic,
+            )
+
         mac = data.get("mac", "").lower()
         if not mac:
             return

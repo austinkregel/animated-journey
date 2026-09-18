@@ -5,6 +5,7 @@ idf_component_register(
         "ble_scanner.c"
         "led_ctrl.c"
         "audio_beep.c"
+        "c6_diag.c"
         "../../common/src/mqtt_reporter.c"
         "../../common/src/ota_client.c"
         "../../common/src/nvs_config.c"
@@ -21,7 +22,9 @@ idf_component_register(
         esp_https_ota
         esp_http_client
         app_update
+        esp_app_format
         esp_timer
         driver
         esp_codec_dev
+        esp_driver_tsens
 )

@@ -5,6 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUT_DIR="${SCRIPT_DIR}/out"
 IDF_DIR="${SCRIPT_DIR}/idf-source"
 IMAGE_NAME="animated-journey-idf"
+
+# Firmware version stamped into esp_app_desc (reported over MQTT as fw_git).
+# Computed here on the host because the container build has no .git to run
+# `git describe` against; passed in via AJ_FW_VERSION and applied as PROJECT_VER
+# in each target's CMakeLists.
+FW_VER="$(git -C "$SCRIPT_DIR" describe --always --tags --dirty 2>/dev/null || echo unknown)"
 ALL_TARGETS=("scanner-s3:esp32s3" "scanner-c6:esp32c6" "scanner-p4:esp32p4")
 
 usage() {
@@ -76,6 +82,7 @@ build_target() {
     docker run --rm \
       --network=host \
       -e "IDF_TARGET=${idf_target}" \
+      -e "AJ_FW_VERSION=${FW_VER}" \
       -v "${SCRIPT_DIR}:/src:ro" \
       -v "${IDF_DIR}/builds/${target}:/project/${target}/build" \
       -v "${IDF_DIR}/components/${target}:/project/${target}/main/managed_components" \

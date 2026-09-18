@@ -1,0 +1,19 @@
+# Hot-reloading dev image for the add-on.
+#
+# Same dependency layer as the production Dockerfile, plus `watchfiles`. The
+# source is NOT copied in here -- docker-compose.dev.yml bind-mounts addon/ and
+# frontend/ at runtime, and watchfiles restarts the server whenever a .py file
+# under addon/ changes. Frontend HTML is read per-request, so it needs no restart.
+FROM python:3.12-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential libffi-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt watchfiles
+
+WORKDIR /app
+
+# Watch the mounted addon package; re-exec the server on any Python change.
+CMD ["watchfiles", "--filter", "python", "python -m addon.server", "addon"]

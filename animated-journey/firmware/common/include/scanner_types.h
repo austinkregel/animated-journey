@@ -65,4 +65,21 @@ typedef struct {
     uint32_t ble_count;
     uint32_t beacon_count;
     uint32_t ble_active;
+    /* Extended diagnostics */
+    float    chip_temp_c;       /* Internal die temperature (C) */
+    uint32_t min_free_heap;     /* Minimum free heap since boot */
+    uint32_t psram_free;        /* Free PSRAM (0 if none) */
+    uint32_t psram_total;       /* Total PSRAM (0 if none) */
+    uint8_t  reset_reason;      /* esp_reset_reason_t value */
+    uint8_t  cpu_count;         /* Number of CPU cores */
+    uint16_t cpu_freq_mhz;     /* CPU clock frequency */
+    char     idf_version[16];   /* ESP-IDF version string */
+    char     chip_model[16];    /* Chip model name */
+    /* ESP-Hosted coprocessor (C6) diagnostics -- P4 only; empty/zero elsewhere */
+    char     c6_fw[32];         /* Coprocessor network_adapter app version */
+    char     c6_chip[16];       /* Coprocessor target, e.g. "esp32c6" */
+    char     c6_rpc[16];        /* ESP-Hosted RPC version "maj.min.patch" */
+    uint8_t  c6_reset;          /* Last C6 reset reason (esp_reset_reason_t) */
+    uint8_t  c6_link;           /* 1 = SDIO transport to C6 is up */
+    uint32_t c6_reboots;        /* C6 (re)init events seen since P4 boot */
 } node_status_t;

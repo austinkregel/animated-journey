@@ -32,11 +32,12 @@ def generate_nvs_csv(args):
     rows = [
         ["key", "type", "encoding", "value"],
         [NVS_NAMESPACE, "namespace", "", ""],
-        ["node_id", "data", "string", args.node_id],
         ["mqtt_host", "data", "string", args.mqtt_host],
         ["mqtt_port", "data", "u16", str(args.mqtt_port)],
     ]
 
+    if args.node_id:
+        rows.append(["node_id", "data", "string", args.node_id])
     if args.mqtt_user:
         rows.append(["mqtt_user", "data", "string", args.mqtt_user])
     if args.mqtt_pass:
@@ -134,7 +135,7 @@ def main():
     )
     parser.add_argument("--port", required=True, help="Serial port (e.g. /dev/ttyACM0)")
     parser.add_argument("--chip", default="esp32p4", help="Chip type (default: esp32p4)")
-    parser.add_argument("--node-id", required=True, help="Unique node identifier")
+    parser.add_argument("--node-id", default="", help="Unique node identifier (auto-generated from MAC if omitted)")
     parser.add_argument("--mqtt-host", required=True, help="MQTT broker hostname/IP")
     parser.add_argument("--mqtt-port", type=int, default=1883, help="MQTT broker port")
     parser.add_argument("--mqtt-user", default="", help="MQTT username")
@@ -147,7 +148,8 @@ def main():
     args = parser.parse_args()
 
     csv_content = generate_nvs_csv(args)
-    print(f"NVS config for node '{args.node_id}':")
+    node_label = args.node_id if args.node_id else "(auto-generated from MAC)"
+    print(f"NVS config for node {node_label}:")
     print(csv_content)
 
     with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
